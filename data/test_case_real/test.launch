@@ -1,0 +1,154 @@
+<launch>
+
+  <!-- Simulator -->
+  <node pkg="so3_quadrotor_simulator"
+        type="quadrotor_simulator_so3"
+        name="quadrotor_simulator_so3">
+    <param name="rate/odom" value="100.0"/>
+    <remap from="~odom" to="/visual_slam/odom"/>
+    <remap from="~cmd" to="so3_cmd"/>
+    <remap from="~force_disturbance" to="force_disturbance"/>    
+    <remap from="~moment_disturbance" to="moment_disturbance"/>        
+  </node>
+
+  <node pkg="so3_disturbance_generator"
+        name="so3_disturbance_generator"
+        type="so3_disturbance_generator">
+    <remap from="~odom" to="/visual_slam/odom"/>              <!-- Ground Truth & Fake VSLAM Odom -->
+    <remap from="~noisy_odom" to="/state_ukf/odom"/>          <!-- Fake VINS Odom                 -->
+    <remap from="~correction" to="/visual_slam/correction"/>  <!-- Fake VSLAM Correction          -->   
+    <remap from="~force_disturbance" to="force_disturbance"/>        
+    <remap from="~moment_disturbance" to="moment_disturbance"/>            
+  </node>
+  
+  <!-- Trajectory Generator Config -->
+  <node pkg="rqt_reconfigure"
+        name="trajectory_generator_gui"
+        type="rqt_reconfigure"/>
+        
+  <!-- Manual Waypoint Generator -->
+  <node pkg="waypoint_generator"
+        name="waypoint_generator"
+        type="waypoint_generator">
+    <remap from="~odom" to="/visual_slam/odom"/>        
+    <remap from="~goal" to="/goal"/>
+    <param name="waypoint_type" value="manual"/>    
+  </node>     
+  
+
+  <!-- Controller -->  
+  <node pkg="nodelet"
+    type="nodelet"
+    args="standalone so3_control/SO3ControlNodelet"
+    name="so3_control"
+    required="true">
+    <remap from="~odom" to="/state_ukf/odom"/>
+    <remap from="~position_cmd" to="position_cmd"/>
+    <remap from="~motors" to="motors"/>
+    <remap from="~corrections" to="corrections"/>
+    <remap from="~so3_cmd" to="so3_cmd"/>
+    <rosparam file="$(find so3_control)/config/gains_hummingbird.yaml"/>
+    <rosparam file="$(find so3_control)/config/corrections_hummingbird.yaml"/>
+    <param name="mass" value="0.74"/>
+    <param name="use_angle_corrections " value="false"/>
+    <param name="use_external_yaw "      value="false"/>
+    <param name="gains/rot/z" value="1.0"/>    
+    <param name="gains/ang/z" value="0.1"/>        
+  </node>   
+
+  <!-- Visualization -->
+  <node pkg="odom_visualization"
+        name="odom_visualization_ukf"
+        type="odom_visualization">
+    <remap from="~odom" to="/visual_slam/odom"/>
+    <param name="color/a" value="0.8"/>    
+    <param name="color/r" value="1.0"/>        
+    <param name="color/g" value="0.0"/>        
+    <param name="color/b" value="0.0"/>       
+    <param name="covariance_scale" value="100.0"/>       
+  </node>   
+
+
+  <node name="rviz" 
+        pkg="rviz" 
+        type="rviz" 
+        args="-d $(find voxel_trajectory)/launch/rviz_config/rviz_config.rviz"/>  
+
+    <param  name = "map_x_lower_bound"  value = "0.0"/>
+    <param  name = "map_x_upper_bound"  value = "10.0"/>
+    <param  name = "map_y_lower_bound"  value = "0.0"/>
+    <param  name = "map_y_upper_bound"  value = "10.0"/>
+    <param  name = "map_z_lower_bound"  value = "0.0"/>
+    <param  name = "map_z_upper_bound"  value = "10.0"/>
+
+    <param  name = "bridge_mode"  value = "1"/>
+    <param  name = "/test/test_distance"  value = "5.0"/>
+
+    <param  name = "init/signal" value = "false"/>
+
+    <param 
+        name    = "point_cloud_file" 
+        value   = "$(find voxel_trajectory)/data/test_case_real/obstacle.txt"/>
+
+    <param name	= "test_mode" value = "3"/>
+
+  <node
+    pkg     = "voxel_trajectory"
+    type    = "voxel_trajectory_generator_node"
+    name    = "trajectory_generator"
+    output   = "screen">
+    
+
+    <remap 
+        from    = "~obstacle_point_cloud" 
+        to      = "~obstacle_point_cloud" />
+
+    <remap
+        from    = "~odometry"
+        to      = "~odometry" />
+
+    <remap
+        from    = "~waypoints"
+        to      = "/waypoint_generator/waypoints" />
+
+    <remap
+        from    = "~dest"
+        to      = "~dest" />
+
+    <remap
+        from    = "~desired_state"
+        to      = "position_cmd" />
+
+    <remap
+        from    = "~trajectory"
+        to      = "~traj"/>
+
+    <remap
+        from    = "~map_points"
+        to      = "~map_points"/>
+  </node>
+  
+
+  <node
+    pkg     = "voxel_trajectory"
+    type    = "mission_commander_node"
+    output  = "screen"
+    name    = "mission_commander">
+
+    <remap from = "~odom" to = "/state_ukf/odom"/>
+    <remap from = "~init_pos" to = "/voxel_bridge/init_pos"/>
+    <remap from = "~delta_time" to = "/voxel_bridge/delta_time"/>
+
+  </node>
+
+  <node
+    pkg     = "voxel_trajectory"
+    type    = "voxel_bridge_node"
+    output  = "screen"
+    name    = "voxel_bridge">
+
+    <remap from = "~odom" to = "/trajectory_generator/odometry"/>
+    <remap from = "~dest" to = "/trajectory_generator/dest"/>
+  </node>
+
+</launch>

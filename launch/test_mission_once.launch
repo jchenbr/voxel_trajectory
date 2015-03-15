@@ -1,0 +1,11 @@
+<launch>
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "mission_commander_node"
+        name    = "mission_commander_node"
+        output  = "screen">
+
+        <remap from = "~/point_cloud"/>
+
+    </node>
+</launch>

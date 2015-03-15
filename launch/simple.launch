@@ -1,0 +1,22 @@
+<launch>
+
+
+    <param  name = "map_x_lower_bound"  value = "-100.0"/>
+    <param  name = "map_x_upper_bound"  value = "100.0"/>
+    <param  name = "map_y_lower_bound"  value = "-100.0"/>
+    <param  name = "map_y_upper_bound"  value = "100.0"/>
+    <param  name = "map_z_lower_bound"  value = "-100.0"/>
+    <param  name = "map_z_upper_bound"  value = "100.0"/>
+
+    <param 
+        name    = "test_mode" 
+        value   = "0"/>
+
+    <param 
+        name    = "point_cloud_file" 
+        value   = "$(find voxel_trajectory)/data/3d-cloud.txt"/>
+
+     <include file="$(find voxel_trajectory)/launch/simulation.launch"/>
+     <include file="$(find voxel_trajectory)/launch/mission.launch"/>
+
+</launch>

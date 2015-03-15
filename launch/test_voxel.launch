@@ -1,0 +1,21 @@
+<launch>
+
+    <node 
+        pkg     = "voxel_trajectory"
+        type    = "voxel_trajectory_generator_node"
+        name    = "voxel_trajectory_generator_node"
+        output  = "screen">
+        
+        <param name = "map_x_lower_bound" value = "-100.0"/>
+        <param name = "map_x_upper_bound" value = "100.0"/>
+        <param name = "map_y_lower_bound" value = "-100.0"/>
+        <param name = "map_y_upper_bound" value = "100.0"/>
+        <param name = "map_z_lower_bound" value = "-100.0"/>
+        <param name = "map_z_upper_bound" value = "100.0"/>
+
+        <remap 
+            from    = "~/obstacle_point_cloud" 
+            to      = "/mission_commander_node/point_cloud"/>
+    </node>
+
+</launch>
