@@ -2,6 +2,7 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <random>
 
 #include "ros/ros.h"
 #include "sensor_msgs/PointCloud2.h"
@@ -9,13 +10,198 @@
 #include "nav_msgs/Odometry.h"
 #include "std_msgs/Float64.h"
 #include "ros/console.h"
-
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 
 using namespace std;
 
 void default_mode(ros::NodeHandle & handle);
+
+sensor_msgs::PointCloud2 getPointCloud(float * pt, int n)
+{
+    sensor_msgs::PointCloud2 ptCloud;
+
+    ptCloud.header.frame_id = "/map";
+    ptCloud.header.stamp    = ros::Time::now();
+
+    ptCloud.height  = 1;
+    ptCloud.width   = n;
+
+    ptCloud.is_bigendian    = false;
+    ptCloud.is_dense    = true;
+
+    ptCloud.point_step  = 3 * 4;
+    ptCloud.row_step    = ptCloud.point_step * ptCloud.width;
+
+    sensor_msgs::PointField field;
+
+    field.name      = "x";
+    field.offset    = 0;
+    field.datatype  = 7;
+    field.count     = 1;
+    ptCloud.fields.push_back(field);
+
+    field.name      = "y";
+    field.offset    += 4;
+    ptCloud.fields.push_back(field);
+
+    field.name      = "z";
+    field.offset    += 4;
+    ptCloud.fields.push_back(field);
+
+    ptCloud.data.reserve(ptCloud.row_step);
+    uint8_t * pc_   = (uint8_t*)  pt;
+
+    for (size_t idx = 0; idx < ptCloud.row_step; ++idx)
+    {ptCloud.data.push_back(pc_[idx]);}
+    
+    return ptCloud;
+}
+
+sensor_msgs::PointCloud2 getBlockCloud(float * blk, int n)
+{
+    sensor_msgs::PointCloud2 blkCloud;
+
+    blkCloud.header.frame_id    = "/map";
+    blkCloud.header.stamp   = ros::Time::now();
+
+    blkCloud.height = 1;
+    blkCloud.width  = n;
+
+    blkCloud.is_bigendian    = false;
+    blkCloud.is_dense    = true;
+
+    blkCloud.point_step  = 6 * 4;
+    blkCloud.row_step   = blkCloud.point_step * blkCloud.width;
+
+    sensor_msgs::PointField field;
+
+    field.name  = "x";
+    field.offset    = 0;
+    field.datatype  = 7;
+    field.count = 1;
+    blkCloud.fields.push_back(field);
+
+    field.name  = "X";
+    field.offset  += 4;
+    blkCloud.fields.push_back(field);
+
+    field.name  = "y";
+    field.offset  += 4;
+    blkCloud.fields.push_back(field);
+
+    field.name  = "Y";
+    field.offset  += 4;
+    blkCloud.fields.push_back(field);
+
+    field.name  = "z";
+    field.offset  += 4;
+    blkCloud.fields.push_back(field);
+
+    field.name  = "Z";
+    field.offset  += 4;
+    blkCloud.fields.push_back(field);
+
+    blkCloud.data.reserve(blkCloud.row_step);
+    uint8_t * blk_ = (uint8_t *) blk;
+
+    for (size_t idx = 0; idx < blkCloud.row_step; ++idx)
+    {blkCloud.data.push_back(blk_[idx]);}
+
+    return blkCloud;
+}
+
+void deployRandomForest(ros::NodeHandle & handle)
+{
+    int n_rf;
+    double x, y, h, r, H, W;
+
+    double bdy[6];
+
+    handle.getParam("/map_x_lower_bound", bdy[0]);
+    handle.getParam("/map_x_upper_bound", bdy[1]);
+    handle.getParam("/map_y_lower_bound", bdy[2]);
+    handle.getParam("/map_y_upper_bound", bdy[3]);
+    handle.getParam("/map_z_lower_bound", bdy[4]);
+    handle.getParam("/map_z_upper_bound", bdy[5]);
+
+    double h_mean, h_var;
+    double r_mean, r_var;
+    double H_mean, H_var;
+    double W_mean, W_var;
+
+    handle.getParam("/random_forest/tot_num", n_rf);
+
+    handle.getParam("/random_forest/r_mean", r_mean);
+    handle.getParam("/random_forest/r_var", r_var);
+
+    handle.getParam("/random_forest/h_mean", h_mean);
+    handle.getParam("/random_forest/h_var", h_var);
+
+    handle.getParam("/random_forest/H_mean", H_mean);
+    handle.getParam("/random_forest/H_var", H_var);
+    
+    handle.getParam("/random_forest/W_mean", W_mean);
+    handle.getParam("/random_forest/W_var", W_var);
+
+    float * blk = new float[n_rf * 6 * 2];
+
+    std::random_device rd;
+    std::default_random_engine eng(rd());
+
+    std::uniform_real_distribution<double>  rand_x(bdy[0], bdy[1]);
+    std::uniform_real_distribution<double>  rand_y(bdy[2], bdy[3]);
+
+    std::normal_distribution<double>    rand_r(r_mean, r_var);
+    std::normal_distribution<double>    rand_h(h_mean, h_var);
+    std::normal_distribution<double>    rand_H(H_mean, H_var);
+    std::normal_distribution<double>    rand_W(W_mean, W_var);
+
+    for (int idx = 0; idx < n_rf; ++ idx)
+    {
+        x   = rand_x(eng);
+        y   = rand_y(eng);
+        r   = abs(rand_r(eng));
+        h   = abs(rand_h(eng));
+        H   = abs(rand_H(eng));
+        W   = abs(rand_W(eng));
+
+        ROS_WARN("[%.3lf %.3lf], [%.3lf %.3lf], [%.3lf %.3lf]",
+            x, y, r, h, W, H);
+
+        blk[ idx * 12 + 0 ] = x - r;
+        blk[ idx * 12 + 1 ] = x + r;
+        blk[ idx * 12 + 2 ] = y - r;
+        blk[ idx * 12 + 3 ] = y + r;
+        blk[ idx * 12 + 4 ] = bdy[4];
+        blk[ idx * 12 + 5 ] = bdy[4] + h;
+
+        blk[ idx * 12 + 6 ] = x - W;
+        blk[ idx * 12 + 7 ] = x + W;
+        blk[ idx * 12 + 8 ] = y - W;
+        blk[ idx * 12 + 9 ] = y + W;
+        blk[ idx * 12 + 10] = bdy[4] + h;
+        blk[ idx * 12 + 11] = bdy[4] + h + H;
+    }
+
+    sensor_msgs::PointCloud2 blkCloud = getBlockCloud(blk, n_rf * 2);
+
+    ros::Publisher pub = 
+        handle.advertise<sensor_msgs::PointCloud2>(
+            "/trajectory_generator/obstacle_block_cloud", 2);
+
+    ros::Rate wait_rate(1);
+    while (ros::ok() && pub.getNumSubscribers() == 0) 
+        wait_rate.sleep();
+
+    pub.publish(blkCloud);
+    delete[] blk;
+}
+
+void randomForesetMode(ros::NodeHandle & handle)
+{
+    deployRandomForest(handle);
+}
 
 nav_msgs::Odometry odom;
 
@@ -88,41 +274,7 @@ void pcl_pcd(ros::NodeHandle & handle)
         pc[idx * 3 + 2] = cloud->points[idx].z;
     }
 
-    sensor_msgs::PointCloud2 ptCloud;
-
-    ptCloud.header.frame_id = "/map";
-    ptCloud.header.stamp    = ros::Time::now();
-
-    ptCloud.height  = 1;
-    ptCloud.width   = cloud->points.size();
-
-    ptCloud.is_bigendian    = false;
-    ptCloud.is_dense    = true;
-
-    ptCloud.point_step  = 3 * 4;
-    ptCloud.row_step    = ptCloud.point_step * ptCloud.width;
-
-    sensor_msgs::PointField field;
-
-    field.name      = "x";
-    field.offset    = 0;
-    field.datatype  = 7;
-    field.count     = 1;
-    ptCloud.fields.push_back(field);
-
-    field.name      = "y";
-    field.offset    += 4;
-    ptCloud.fields.push_back(field);
-
-    field.name      = "z";
-    field.offset    += 4;
-    ptCloud.fields.push_back(field);
-
-    ptCloud.data.reserve(ptCloud.row_step);
-    uint8_t * pc_   = (uint8_t*)  pc;
-
-    for (size_t idx = 0; idx < ptCloud.row_step; ++idx)
-    {ptCloud.data.push_back(pc_[idx]);}
+    sensor_msgs::PointCloud2 ptCloud = getPointCloud(pc, cloud->points.size());
 
     ros::Rate loop_rate(1);
 
@@ -183,53 +335,7 @@ void obs_blk_dest(ros::NodeHandle & handle)
 #endif
     }
     
-    sensor_msgs::PointCloud2 blkCloud;
-
-    blkCloud.header.frame_id    = "/map";
-    blkCloud.header.stamp   = ros::Time::now();
-
-    blkCloud.height = 1;
-    blkCloud.width  = n_blk;
-
-    blkCloud.is_bigendian    = false;
-    blkCloud.is_dense    = true;
-
-    blkCloud.point_step  = 6 * 4;
-    blkCloud.row_step   = blkCloud.point_step * blkCloud.width;
-
-    sensor_msgs::PointField field;
-
-    field.name  = "x";
-    field.offset    = 0;
-    field.datatype  = 7;
-    field.count = 1;
-    blkCloud.fields.push_back(field);
-
-    field.name  = "X";
-    field.offset  += 4;
-    blkCloud.fields.push_back(field);
-
-    field.name  = "y";
-    field.offset  += 4;
-    blkCloud.fields.push_back(field);
-
-    field.name  = "Y";
-    field.offset  += 4;
-    blkCloud.fields.push_back(field);
-
-    field.name  = "z";
-    field.offset  += 4;
-    blkCloud.fields.push_back(field);
-
-    field.name  = "Z";
-    field.offset  += 4;
-    blkCloud.fields.push_back(field);
-
-    blkCloud.data.reserve(blkCloud.row_step);
-    uint8_t * blk_ = (uint8_t *) blk;
-
-    for (size_t idx = 0; idx < blkCloud.row_step; ++idx)
-    {blkCloud.data.push_back(blk_[idx]);}
+    sensor_msgs::PointCloud2 blkCloud = getBlockCloud(blk, n_blk);
 
     ros::Rate loop_rate(1);
     
@@ -280,40 +386,7 @@ void default_mode(ros::NodeHandle & handle)
                             pt32[idx * 3 + 2]);
     }
 
-    sensor_msgs::PointCloud2 ptCloud;
-
-    ptCloud.header.frame_id = "/map";
-    ptCloud.header.stamp    = ros::Time::now();
-
-    ptCloud.height  = 1;
-    ptCloud.width   = n;
-
-    ptCloud.is_bigendian    = false;
-    ptCloud.is_dense    = true;
-
-    ptCloud.point_step  = 3 * 4;
-    ptCloud.row_step    = ptCloud.point_step * ptCloud.width;
-
-    sensor_msgs::PointField field;
-
-    field.name      = "x";
-    field.offset    = 0;
-    field.datatype  = 7;
-    field.count     = 1;
-    ptCloud.fields.push_back(field);
-
-    field.name      = "y";
-    field.offset    += 4;
-    ptCloud.fields.push_back(field);
-
-    field.name      = "z";
-    field.offset    += 4;
-    ptCloud.fields.push_back(field);
-
-    ptCloud.data.reserve(ptCloud.row_step);
-    uint8_t * pt32it    = (uint8_t *)pt32;
-    for (size_t idx = 0; idx < ptCloud.row_step; ++idx)
-    {ptCloud.data.push_back(pt32it[idx]);}
+    sensor_msgs::PointCloud2 ptCloud = getPointCloud(pt32, n);
 
     ros::Rate loop_rate(1);
 
@@ -345,7 +418,11 @@ int main(int argc, char ** argv)
 
     ROS_WARN("[work_mode] %d", mode);
 
-    if (mode == 3)
+    if (mode == 4)
+    {
+        randomForesetMode(handle);
+    }
+    else if (mode == 3)
     {
         real_quad(handle);
     }
