@@ -9,8 +9,8 @@
 #include <iostream>
 const static int _EDGE_NULL    = -1;
 const static int _NODE_NULL    = -1;
-const static int _NODE_S   = 0;
-const static int  _NODE_T  = 1;
+static int _NODE_S   = 0;
+static int  _NODE_T  = 1;
 const static double _TURN_PENALTY  = 1.6;
 const static double _EPS = 1e-9;
 const static double _INF = 1e100;
@@ -50,15 +50,8 @@ namespace VoxelTrajectory
         return eid^1;
     }
 
-    VoxelGraph::VoxelGraph(OctoMap *octomap,
-        double pt_s[_TOT_DIM],double pt_t[_TOT_DIM])
+    void VoxelGraph::SetUp(double pt_s[_TOT_DIM], double pt_t[_TOT_DIM], OctoMap * octomap)
     {
-        N    = 0;
-        E    = 0; 
-
-        hasGotPath   = false;
-
-
         double bdy_s[_TOT_BDY]=
         {
             pt_s[_DIM_x],pt_s[_DIM_x] + _EPS,
@@ -72,30 +65,68 @@ namespace VoxelTrajectory
             pt_t[_DIM_y],pt_t[_DIM_y] + _EPS,
             pt_t[_DIM_z],pt_t[_DIM_z] + _EPS
         };
+
 #if _USE_DEBUG_PRINT_
-        clog<<"[bdy_s] = ";
         for (int j = 0; j < 6; j++) clog<<bdy_s[j]<<",";
         clog<<"\n";
         clog<<"[bdy_t] = ";
         for (int j = 0; j < 6; j++) clog<<bdy_t[j]<<",";
         clog<<"\n";
 #endif
+        int old_E = E, old_N = N, old_pr = bid_nid.size();
+
         octomap->query(1, -1, bdy_s, this);
         octomap->query(1, -2, bdy_t, this);
 
+#if 0
+        clog
+            << bdy_s[0] <<" |"
+            << bdy_s[1] <<" |"
+            << bdy_s[2] <<" |"
+            << bdy_s[3] <<" |"
+            << bdy_s[4] <<" |"
+            << bdy_s[5] <<"\n";
 
-#if _USE_DEBUG_PRINT_
-        for (int i = 0; i < node.size(); i++)
-        {
-           clog<<"id = "<< i << ", bdy=[";
-           for (int j = 0; j < 6; j++) clog<<node[i].bdy[j]<<",";
-           clog<<"]\n";
-        }
+        clog
+            << bdy_t[0] << " |"
+            << bdy_t[1] << " |"
+            << bdy_t[2] << " |"
+            << bdy_t[3] << " |"
+            << bdy_t[4] << " |"
+            << bdy_t[5] << "\n";
 #endif
-        if (node.size() < 2) return ;
+
+        connectNodesWithSameBid(old_pr);
+
+        //clog<<"graph = " << bid_nid.size() <<" [ "<< E << "," << old_E <<"],["<< N << "," << old_N << " ]\n";
+
+        // For path
+        hasGotPath = false;
+        _path_ = getPath(octomap);
+
+
+        // For recovery
+        E   = old_E;
+        N   = old_N;
+
+        for (int u = 0; u < N; ++ u)
+            while (node[u].beg > E)
+                node[u].beg = edge[node[u].beg].nxt;
+
+        node.resize(N);
+        edge.resize(E);
+        bid_nid.resize(old_pr);
+    }
+
+    VoxelGraph::VoxelGraph(OctoMap * octomap)
+    {
+        N    = 0;
+        E    = 0; 
+
+        hasGotPath   = false;
 
         octomap->retGraph(this);
-        connectNodesWithSameBid();
+        connectNodesWithSameBid(0);
     }
 
     static inline double getSurface(double bdy[_TOT_BDY])
@@ -109,17 +140,20 @@ namespace VoxelTrajectory
 
     static inline bool isAllowed(double bdy[_TOT_BDY])
     {
-        return getSurface(bdy)>_EPS;
+        return 
+            bdy[_BDY_x] < bdy[_BDY_X] &&
+            bdy[_BDY_y] < bdy[_BDY_Y] &&
+            bdy[_BDY_z] < bdy[_BDY_Z];
     }
 
     void VoxelGraph::add_bdy_id_id(double bdy[_TOT_BDY],int bid_a,int bid_b)
     {
-        if (N>_NODE_T && !isAllowed(bdy)) return ;
+        //if (isAllowed(bdy)) return ;
 
         bid_nid.push_back(std::pair<int,int>(bid_a,N));
         bid_nid.push_back(std::pair<int,int>(bid_b,N));
 #if 0
-        if (N<=_NODE_T){
+        {
             std::cout<<"surface="<<getSurface(bdy)<<","<<(getSurface(bdy)>_EPS)<<std::endl;
             std::cout<<"\t"<<bdy[0]<<","<<bdy[1]<<std::endl;
             std::cout<<"\t"<<bdy[2]<<","<<bdy[3]<<std::endl;
@@ -180,19 +214,31 @@ namespace VoxelTrajectory
     }
 
 
-    void VoxelGraph::connectNodesWithSameBid()
+    void VoxelGraph::connectNodesWithSameBid(int beg)
     {
-        std::sort(bid_nid.begin(),bid_nid.end());
+        if (beg == 0)
+            sort(bid_nid.begin(), bid_nid.end());
 
-        for (int i=0; i<bid_nid.size(); i++)
+        for (int i = beg; i < bid_nid.size(); i++)
         {
-            int bid = bid_nid[i].first,u=bid_nid[i].second,v;
+            int bid = bid_nid[i].first;
+            int u   = bid_nid[i].second;
+            int v;
 
-            for (int j=i-1; j>=0 && bid_nid[j].first==bid;j--)
+            for (int j = i-1; j >= 0; --j)
             {
+                if (bid_nid[j].first != bid) 
+                    if (beg == 0)
+                        break;
+                    else
+                        continue;
+
                 v   = bid_nid[j].second;
+
                 double cost = getDistance(node[u].bdy,node[v].bdy);
-                if (u>1 && v>1 ) cost *= getTurnCost(node[u].bdy,node[v].bdy); 
+
+                if (beg==0) cost *= getTurnCost(node[u].bdy,node[v].bdy); 
+
                 addEdge(u,v,cost,bid);
                 addEdge(v,u,cost,bid);
             }
@@ -204,6 +250,9 @@ namespace VoxelTrajectory
     void VoxelGraph::calBestPath()
     {
         if (hasGotPath || node.size() < 2) return ;
+
+        _NODE_S = N - 2;
+        _NODE_T = N - 1;
 
         std::multimap<double,int> weight2nid;
         std::vector<double> best(N,_INF);
@@ -250,6 +299,8 @@ namespace VoxelTrajectory
         if (last[_NODE_T] == _NODE_NULL) return ;
 
         u   = _NODE_T;
+        path_nid    = vector<int> (0);
+        path_bid    = vector<int> (0);
         while (u!=_NODE_S)
         {
             eid = getRevEdgeID(last[u]);
@@ -265,10 +316,11 @@ namespace VoxelTrajectory
     {
         //std::cout<<"OK,"<<std::endl;
         calBestPath();
+        //clog << "HasGotPath" << hasGotPath <<std::endl;
 
         if (!hasGotPath) return Eigen::MatrixXd(0,0);
 
-        int M=path_bid.size(),mid=0;
+        int M=path_bid.size(), mid=0;
         
         //std::cout<<"M="<<M<<std::endl;
 

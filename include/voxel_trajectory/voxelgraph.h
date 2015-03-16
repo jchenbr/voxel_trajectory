@@ -19,6 +19,7 @@ namespace VoxelTrajectory
         {
             int beg;
             double bdy[_TOT_BDY];
+            Node(){};
             Node(int beg,double bdy[_TOT_BDY]);
         };
 
@@ -28,11 +29,12 @@ namespace VoxelTrajectory
             int bid; // in wich box;
             int to;  // directed edge; 
             double cost;
+            Edge(){};
             Edge(int to,double cost,int bid,int nxt);
         };
      
 
-        bool hasGotPath;
+        bool hasGotPath, isReady;
         int N,E;
         // save the graph
         std::vector<Node> node;
@@ -49,14 +51,21 @@ namespace VoxelTrajectory
         void addEdge(int from_u,int to_v,double cost,int bid);
 
         // procedural methods 
-        void connectNodesWithSameBid();
+        void connectNodesWithSameBid(int beg);
         void calBestPath();
 
+        Eigen::MatrixXd _path_;
+
+        Eigen::MatrixXd getPath(OctoMap *octomap);
 
     public:
         // accessory methods
-        VoxelGraph(OctoMap *octomap,double pt_s[_TOT_DIM],double pt_t[_TOT_DIM]);
-        Eigen::MatrixXd getPath(OctoMap *octomap);
+        VoxelGraph(OctoMap *octomap);
+
+        void SetUp(double pt_s[_TOT_DIM], double pt_t[_TOT_DIM], OctoMap * octomap);
+
+        Eigen::MatrixXd getPathMatrix()
+        { if (hasGotPath) return _path_; else return Eigen::MatrixXd::Zero(0,_TOT_BDY);}
 
         // communicational metods
         void add_bdy_id_id(double bdy[_TOT_BDY],int bid_a,int bid_b);

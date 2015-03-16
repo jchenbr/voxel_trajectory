@@ -38,6 +38,7 @@ private:
         double bdy[_TOT_BDY];
 
         VoxelTrajectory::OctoMap * voxel_map;
+        VoxelTrajectory::VoxelGraph * voxel_graph; 
 public:
         /* 0. Init our server. */
         VoxelServer()
@@ -53,13 +54,18 @@ public:
             resolution  = 0.2;
             margin  = 0.02;
             voxel_map = NULL; 
+            voxel_graph = NULL;
             bdy[0] = bdy[2] = bdy[4] = +_DB_INF;
             bdy[1] = bdy[3] = bdy[5] = -_DB_INF;
         }
 
         ~VoxelServer()
         {
-            if (hasMap) delete voxel_map;
+            if (hasMap) 
+            {
+                delete voxel_map;
+                delete voxel_graph;
+            }
         }
 
         /*  1.  Receive point cloud 
@@ -74,7 +80,6 @@ public:
             if (!hasMap)
             {
                 voxel_map   = new VoxelTrajectory::OctoMap(bdy, resolution);
-                hasMap  = true;
             }
 
             for (int i = 0; i < n_blk; i++)
@@ -84,6 +89,12 @@ public:
                     blk[i * _TOT_BDY + _BDY_y], blk[i * _TOT_BDY + _BDY_Y] + _eps,
                     blk[i * _TOT_BDY + _BDY_z], blk[i * _TOT_BDY + _BDY_Z] + _eps};
                 voxel_map->insertBlock(to_add);
+            }
+
+            if (!hasMap)
+            {
+                hasMap  = true;
+                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
             }
         }
 
@@ -135,7 +146,6 @@ public:
                 voxel_map -> insertBlock(z_lower_wall);
                 voxel_map -> insertBlock(z_upper_wall);
 #endif
-                hasMap  = true;
             }
 
 
@@ -147,6 +157,12 @@ public:
                     pt[i * _TOT_DIM + _DIM_z]};
 
                 voxel_map->insert(p);
+            }
+
+            if (!hasMap)
+            {
+                hasMap  = true;
+                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
             }
         }
 
@@ -195,8 +211,10 @@ public:
             MatrixXd Acc (_TOT_DIM, 2); 
 
             do{
-                VoxelTrajectory::VoxelGraph graph(voxel_map, p[0], p[1]);
-                Eigen::MatrixXd path = graph.getPath(voxel_map);
+                VoxelTrajectory::VoxelGraph * graph = voxel_graph;
+                graph->SetUp(p[0], p[1], voxel_map);
+
+                Eigen::MatrixXd path = graph->getPathMatrix();
                 clog<<"[ PATH ]: \n"<<path<<endl;
 
                 if (path.rows()<1)

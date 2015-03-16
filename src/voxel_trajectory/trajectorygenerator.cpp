@@ -177,11 +177,11 @@ namespace VoxelTrajectory
             VectorXd direct = getCenter(E.row(0)) - p_s;
             direct  /= direct.norm();
             double vel0 = direct.dot(vel.col(0));
-            double to_add = (vel0 < 0) * abs(vel0) / max_acc;
+            double to_add = (vel0 < 0) * abs(vel0) / max_acc * 2.0;
 
             //clog<<"vel_0 = " <<vel0  <<", to_add="<<to_add<<endl;
 
-            T(0)    = (getCenter(E.row(0)) - p_s).norm() / (max_vel + abs(vel0)) * 2.0 + to_add;
+            T(0)    = (getCenter(E.row(0)) - p_s).norm() / (max_vel + abs(vel0)*0.5) * 2.0 + to_add;
         }
         // for the final segment
         {
@@ -1010,7 +1010,7 @@ static int _error_code = 0;
         retInit(PBE, p_s, p_t, B, E);
 
         // allocate time for each segment
-        T   = getTime_stupid(p_s, p_t, E, vel);
+        T   = getTime_smart(p_s, p_t, E, vel);
         T(0) /=1.0;
 
         // generate the coeff for polynomial traj

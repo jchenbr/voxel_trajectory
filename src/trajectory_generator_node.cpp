@@ -121,25 +121,22 @@ void PointCloudCallback(
     if (! isMap)
     {   
         isMap = true;
-        
-        server = new VoxelTrajectory::VoxelServer;
-        server->setMapBoundary(mapBdy);
-        innerServer = new VoxelTrajectory::VoxelServer;
-        innerServer->setMapBoundary(mapBdy);
     }
 
     float * data = (float *) cloud -> data.data();
-    vector<double > pt( cloud->width  * _TOT_DIM );
+    vector<double > pt( cloud->width  * _TOT_BDY );
     ROS_WARN("[Receive TOTAL]: %d", cloud->width); 
     for (size_t idx = 0; idx < cloud->width; ++idx)
     {
-        pt[idx * _TOT_DIM + _DIM_x] = data[idx * _TOT_DIM + _DIM_x];
-        pt[idx * _TOT_DIM + _DIM_y] = data[idx * _TOT_DIM + _DIM_y];
-        pt[idx * _TOT_DIM + _DIM_z] = data[idx * _TOT_DIM + _DIM_z];
-        //ROS_WARN("Receive: [%.3lf %.3lf %.3lf]", pt[idx * _TOT_DIM + _DIM_x], pt[idx * _TOT_DIM + _DIM_y], pt[idx * _TOT_DIM + _DIM_z]);
+        pt[idx * _TOT_BDY + _BDY_x] = data[idx * _TOT_DIM + _DIM_x] - safeMargin;
+        pt[idx * _TOT_BDY + _BDY_X] = data[idx * _TOT_DIM + _DIM_x] + safeMargin;
+        pt[idx * _TOT_BDY + _BDY_y] = data[idx * _TOT_DIM + _DIM_y] - safeMargin;
+        pt[idx * _TOT_BDY + _BDY_Y] = data[idx * _TOT_DIM + _DIM_y] + safeMargin;
+        pt[idx * _TOT_BDY + _BDY_z] = data[idx * _TOT_DIM + _DIM_z] - safeMargin;
+        pt[idx * _TOT_BDY + _BDY_Z] = data[idx * _TOT_DIM + _DIM_z] + safeMargin;
     }
 
-    server->setPointCloud(pt);
+    server->addMapBlock(pt);
     VisualizeMap();
 }
 
@@ -149,18 +146,18 @@ void blockCloudCallback(
     if (! isMap)
     {   
         isMap = true;
-        
-        server = new VoxelTrajectory::VoxelServer;
-        server->setMapBoundary(mapBdy);
-        innerServer = new VoxelTrajectory::VoxelServer;
-        innerServer->setMapBoundary(mapBdy);
     }
+    ROS_WARN("<BUILD SUCCEED> %.3lf", mapVoxelResolution);
     float * data = (float *) cloud -> data.data();
     vector<double> blk( cloud->width * _TOT_BDY);
     for (size_t idx = 0; idx < cloud->width; ++idx)
     {
         for (size_t j = 0; j < _TOT_BDY; j++)
-           blk[idx * _TOT_BDY + j] = data[ idx * _TOT_BDY + j];
+        if (j & 1)
+           blk[idx * _TOT_BDY + j] = data[ idx * _TOT_BDY + j] + safeMargin;
+        else
+           blk[idx * _TOT_BDY + j] = data[ idx * _TOT_BDY + j] - safeMargin;
+
             ROS_WARN("Receive: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf]", 
             blk[idx * _TOT_BDY + 0], blk[idx * _TOT_BDY + 1],
             blk[idx * _TOT_BDY + 2], blk[idx * _TOT_BDY + 3],
@@ -344,7 +341,7 @@ void VisualizeTraj()
         pose.pose.position.y    = state[0 * _TOT_DIM + _DIM_y];
         pose.pose.position.z    = state[0 * _TOT_DIM + _DIM_z];
 
-        if (getTotAcc(state[3], state[4], state[5]) > maxAcc * 3.0)
+        if (getTotAcc(state[3], state[4], state[5]) > maxAcc * 1.5)
         {
             iSafe = count;
             break;
@@ -450,11 +447,21 @@ int main(int argc, char ** argv)
     root.param("map_y_upper_bound", mapBdy[_BDY_Y], 100.0);
     root.param("map_z_upper_bound", mapBdy[_BDY_Z], 200.0);
 
-    handle.param("maxVelocity", maxVel, 1.0);
-    handle.param("maxAccleration", maxAcc, 1.0);
+    handle.param("/voxel/maxVelocity", maxVel, 1.0);
+    handle.param("/voxel/maxAccleration", maxAcc, 1.0);
 
-    handle.param("safeMargin", safeMargin, 0.1);
-    handle.param("resolutioin",  mapVoxelResolution, 0.1);
+    handle.param("/voxel/safeMargin", safeMargin, 0.3);
+    handle.param("/voxel/resolution",  mapVoxelResolution, 0.05);
+        
+        server = new VoxelTrajectory::VoxelServer;
+        server->setResolution(mapVoxelResolution);
+        server->setMapBoundary(mapBdy);
+        server->setMaxAcceleration(maxVel);
+        server->setMaxVelocity(maxAcc);
+
+        innerServer = new VoxelTrajectory::VoxelServer;
+        innerServer->setMapBoundary(mapBdy);
+        innerServer->setResolution(mapVoxelResolution);
 
     ros::Subscriber pointCloudSub = 
         handle.subscribe("obstacle_point_cloud", 2, & PointCloudCallback);

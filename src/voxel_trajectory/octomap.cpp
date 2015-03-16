@@ -296,6 +296,17 @@ namespace VoxelTrajectory
     void OctoMap::query(int rt,int from, const double bdy[_TOT_BDY],
         VoxelGraph * graph)
     {
+#if 0
+            if (from < 0){
+            clog<<"[bdy_rt] = ";
+            for (int j = 0; j < 6; j++) clog<<node[rt].bdy[j]<<",";
+            clog<<"\n";
+            clog<<"[bdy_query] = ";
+            for (int j = 0; j < 6; j++) clog<<bdy[j]<<",";
+            clog<<"\n";
+           }
+#endif
+
         // check if they are relavent
         if (!isIntersected(bdy, node[rt].bdy))return;
 
@@ -308,16 +319,13 @@ namespace VoxelTrajectory
         {
             double bdy_i[_TOT_BDY];
             retSharedArea(bdy, node[rt].bdy, bdy_i);
-#if 0
-            clog<<"[bdy_rt] = ";
-            for (int j = 0; j < 6; j++) clog<<node[rt].bdy[j]<<",";
-            clog<<"\n";
-            clog<<"[bdy_query] = ";
-            for (int j = 0; j < 6; j++) clog<<node[rt].bdy[j]<<",";
-            clog<<"\n";
-            clog<<"[bdy_i] = ";
+#if 0    
+           if (from < 0)
+           {
+            clog<<"[bdy_inter] = ";
             for (int j = 0; j < 6; j++) clog<<bdy_i[j]<<",";
-            clog<<"\n\n";
+            clog<<"\n";
+           }
 #endif
             graph->add_bdy_id_id(bdy_i,rt,from);
         }
