@@ -307,6 +307,9 @@ void obs_blk_dest(ros::NodeHandle & handle)
     ros::Publisher blk_pub = 
         handle.advertise<sensor_msgs::PointCloud2>("/trajectory_generator/obstacle_block_cloud", 2);
 
+
+    bool isDest = false;
+    handle.getParam("/dest_signal", isDest);
     geometry_msgs::Point pt;
     handle.getParam("/dest_x", pt.x);
     handle.getParam("/dest_y", pt.y);
@@ -344,15 +347,19 @@ void obs_blk_dest(ros::NodeHandle & handle)
 
     blk_pub.publish(blkCloud);
 
-    while (ros::ok())
+    if (isDest)
     {
-        if (dest_pub.getNumSubscribers()>0)
+        while (ros::ok())
         {
-            dest_pub.publish(pt);
-            break;
+            if (dest_pub.getNumSubscribers()>0)
+            {
+                dest_pub.publish(pt);
+                break;
+            }
+            loop_rate.sleep();
         }
-        loop_rate.sleep();
     }
+
     ros::spinOnce();
     while (ros::ok() )
     {

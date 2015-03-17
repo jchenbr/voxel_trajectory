@@ -190,8 +190,6 @@ void trySetTraj()
         begState[2 * _TOT_DIM + _DIM_z] = estAcc[_DIM_z];
     }else
     {
-        isTraj  = false;
-
         vector<double> state = server -> getDesiredState(odomTime.toSec());
 
         begState[1 * _TOT_DIM + _DIM_x] = state[1 * _TOT_DIM + _DIM_x];
@@ -207,14 +205,11 @@ void trySetTraj()
     endState[0 * _TOT_DIM + _DIM_y] = ptBuff[1];
     endState[0 * _TOT_DIM + _DIM_z] = ptBuff[2];
 
+    isTraj  = false;
     int server_ret = server->setPoints(begState, endState, odomTime.toSec());
     
     ROS_WARN("The traj status is %d.", server_ret);
-    if (server_ret == 0) return ;
-    
-    isTraj  = true;
-    VisualizeTraj();
-    
+    if (server_ret == 0) return ; 
     //erase the current dest
     if (server_ret == 2)
     {
@@ -222,6 +217,9 @@ void trySetTraj()
         ptBuff.pop_front();
         ptBuff.pop_front();
     }
+
+    isTraj  = true;
+    VisualizeTraj();
 }
 
 void pubMavlinkCMD()
@@ -340,12 +338,13 @@ void VisualizeTraj()
         pose.pose.position.x    = state[0 * _TOT_DIM + _DIM_x];
         pose.pose.position.y    = state[0 * _TOT_DIM + _DIM_y];
         pose.pose.position.z    = state[0 * _TOT_DIM + _DIM_z];
-
+#ifdef _FLAG_ACC_CHECK_
         if (getTotAcc(state[3], state[4], state[5]) > maxAcc * 1.5)
         {
             iSafe = count;
             break;
         }
+#endif
 
         path.poses.push_back(pose);
     }
@@ -353,7 +352,7 @@ void VisualizeTraj()
     ROS_WARN("<<GOT TRAJ!>>");
     trajectoryPub.publish(path);
     
-
+#ifdef _FLAG_ACC_CHECK_
     if (iSafe)
     {
         ROS_WARN("<<TRAJ EXCEED THE ACC LIM!>>");
@@ -371,6 +370,7 @@ void VisualizeTraj()
 
         trySetTraj();
     }
+#endif
 }
 
 void MissionCallback(

@@ -39,7 +39,9 @@ const static double _EPS  = 1e-11;
 const static int _N_LOOP   = 10;
 const static int _DER_MIN  =   3;
 const static bool _CHECK_EX   = true;
-const static double _MARGIN_EX = 0.02;
+const static double _MARGIN_EX = 0.002;
+const static double _SAFE_RATE  = 0.05;
+const static double _PLAN_RATE  = 0.66;
 static int M;
 
 const static int _BUFF_SIZE = 256;
@@ -75,28 +77,30 @@ namespace VoxelTrajectory
         double Vel_t    = direct.dot(vel1);
         double aVel_s   = abs(Vel_s);
         double aVel_t   = abs(Vel_t);
+        double maxVel   = max_vel * _PLAN_RATE;
+        double maxAcc   = max_acc * _PLAN_RATE;
 
         double t0, t1, t2, t3;
 
         t0 = t1 = t2 = t3 = 0.0;
 
         /* Case 1: Slow Down */
-        if (aVel_s * aVel_s > 2.0 * max_acc * distance)
+        if (aVel_s * aVel_s > 2.0 * maxAcc * distance)
         {
-            t0  = (Vel_s < 0) * (2.0 * aVel_s/ max_acc);
-            t3  = (aVel_s / max_vel);
+            t0  = (Vel_s < 0) * (2.0 * aVel_s/ maxAcc);
+            t3  = (aVel_s / maxVel);
         } else /*Case 2: speed up and slow down.*/
-        if (2.0 * max_vel * max_vel - aVel_s * aVel_s > 2.0 * max_acc * distance)
+        if (2.0 * maxVel * maxVel - aVel_s * aVel_s > 2.0 * maxAcc * distance)
         {
-            t0  = (Vel_s < 0) * (2.0 * aVel_s/ max_acc);
-            t1  = (-aVel_s + sqrt( 0.5 * aVel_s * aVel_s + max_acc * distance )) / max_acc;
-            t3  = t1 + aVel_s / max_acc;
+            t0  = (Vel_s < 0) * (2.0 * aVel_s/ maxAcc);
+            t1  = (-aVel_s + sqrt( 0.5 * aVel_s * aVel_s + maxAcc * distance )) / maxAcc;
+            t3  = t1 + aVel_s / maxAcc;
         }else 
         {
-            t0  = (Vel_s < 0) * (2.0 * aVel_s / max_acc);
-            t1  = (max_vel - aVel_s) / max_acc;
-            t3  = max_vel / max_acc;
-            t2  = (distance - 0.5*(max_vel + aVel_s)*t1 - 0.5 * max_vel * t3)/max_vel;
+            t0  = (Vel_s < 0) * (2.0 * aVel_s / maxAcc);
+            t1  = (maxVel - aVel_s) / maxAcc;
+            t3  = maxVel / maxAcc;
+            t2  = (distance - 0.5*(maxVel + aVel_s)*t1 - 0.5 * maxVel * t3)/maxVel;
         }
 
         return t0 + t1 + t2 + t3;
@@ -159,6 +163,9 @@ namespace VoxelTrajectory
     {
         VectorXd T = VectorXd(M);
 
+        double maxAcc   = max_acc * _PLAN_RATE;
+        double maxVel   = max_vel * _PLAN_RATE;
+
         if (E.rows() == 0)
         {
             VectorXd direct = p_t - p_s;
@@ -167,9 +174,9 @@ namespace VoxelTrajectory
 
             double vel0 = direct.dot(vel.col(0));
 
-            double to_add = (vel0 < 0) * abs(vel0) / max_acc;
+            double to_add = (vel0 < 0) * abs(vel0) / maxAcc;
 
-            T(0)    = ( p_t  - p_s ).norm() / max_vel * 2.0 + to_add;
+            T(0)    = ( p_t  - p_s ).norm() / maxVel * 2.0 + to_add;
             return T;
         }
         // for the init segment
@@ -177,24 +184,24 @@ namespace VoxelTrajectory
             VectorXd direct = getCenter(E.row(0)) - p_s;
             direct  /= direct.norm();
             double vel0 = direct.dot(vel.col(0));
-            double to_add = (vel0 < 0) * abs(vel0) / max_acc * 2.0;
+            double to_add = (vel0 < 0) * abs(vel0) / maxAcc * 2.0;
 
             //clog<<"vel_0 = " <<vel0  <<", to_add="<<to_add<<endl;
 
-            T(0)    = (getCenter(E.row(0)) - p_s).norm() / (max_vel + abs(vel0)*0.5) * 2.0 + to_add;
+            T(0)    = (getCenter(E.row(0)) - p_s).norm() / (maxVel + abs(vel0)*0.5) * 2.0 + to_add;
         }
         // for the final segment
         {
             double distance = (p_t - getCenter(E.row(M-2)) ).norm();
             
-            if (distance< (0.5 * max_vel * max_vel / max_acc) )
-                T(M-1)  = distance/ max_vel * 2.0;
+            if (distance< (0.5 * maxVel * maxVel / maxAcc) )
+                T(M-1)  = distance/ maxVel * 2.0;
             else 
-                T(M-1)  = max_vel/max_vel + (distance - (0.5 * max_vel * max_vel / max_acc))/max_vel ;
+                T(M-1)  = maxVel/maxVel + (distance - (0.5 * maxVel * maxVel / maxAcc))/maxVel ;
         }
         for (int i = 1; i < M-1; i++)
         {
-            T(i)    = (getCenter(E.row(i)) - getCenter(E.row(i-1))).norm() / max_vel;
+            T(i)    = (getCenter(E.row(i)) - getCenter(E.row(i-1))).norm() / maxVel;
         }
 
         return T;
@@ -492,55 +499,60 @@ namespace VoxelTrajectory
     }
 
     static inline VectorXd getPolyDerRoots(
-        const VectorXd &P)
+        const VectorXd &P,
+        const int degree)
     {
-        //clog<<"Der poly:\n"<<P<<endl;
         VectorXd p = P;
-        //der
-        for (int i = 0; i<N; i++) 
-            p(i) = (i+1<N)? p(i+1)*(i+1) : 0.0;
-        //clog<<"Der poly matrix 1:\n"<<p<<endl;
 
+        // get the derivatives
+        for (int k = 0; k < degree; ++k)
+        {
+            for (int i = 0; i<N; i++) 
+                p(i) = (i + 1 < N) ? p(i + 1) * (i + 1) : 0.0;
+        }
+
+        // get the number of non-zero element
         int N_nz = N-1;
-        while (N_nz>0 && abs(p(N_nz-1))<_EPS) 
-            N_nz -=1;
-        //clog<<"Der poly matrix 2: N_nz ="<<N_nz<<endl<<p.segment(0, N_nz).reverse()<<endl;
+
+        while (N_nz>0 && abs(p(N_nz-1))<_EPS) N_nz -=1;
     
-        if (N_nz < 2) return -VectorXd::Ones(4);
+        if (N_nz < 2) return -VectorXd::Ones(N - degree - 1);
+
+        // get the poly coeff
         RowVectorXd rp = p.segment(0, N_nz).reverse();
 
-
-        //clog<<"Der poly matrix 3:\n"<< rp<<endl;
-
+        // to solve the eigenvalue to get the roots
         MatrixXd tmp = MatrixXd::Zero(N_nz-1, N_nz-1);
 
         tmp.diagonal(-1) << VectorXd::Ones(N_nz-2);
-        //clog<<"Der poly matrix:\n"<<tmp<<endl;
-        //clog<<"Der poly to_add:\n"<<-p.segment(1,N_nz-1).transpose()/p(0)<<endl;
+
         tmp.row(0) << -rp.segment(1, N_nz-1)/rp(0);
-        //clog<<"Der poly matrix 4:\n"<<tmp<<endl;
         
+        // the complex roots
         VectorXcd eig   = tmp.eigenvalues();
-        VectorXd rts    = -VectorXd::Ones(4);
 
-        for (int i = 0; i<N_nz-1; i++)
+        // to return the real roots, -1 is non-sense.
+        VectorXd rts    = -VectorXd::Ones(N - degree - 1);
+
+        for (int i = 0; i < N_nz - 1; i++)
         {
-            //clog<<"eig:"<<eig(i).real()<<","<<eig(i).imag()<<endl;
-
+            // check if it's real
             if (abs(eig(i).imag())<_EPS)
                 rts(i)  = eig(i).real();
         }
-        //clog<<"rts:\n"<<rts<<endl;
-        //clog<< "coef:\n" << p <<"\nroots:\n" << eig<<"\n"<<rts<<"\n\n";
+
         return rts;
     }
 
     static MatrixXd getExtremums(
-        const VectorXd &P)
+        const VectorXd &P, 
+        const int degree)
     {
-        MatrixXd ex = MatrixXd::Zero((N-2),M);
+        MatrixXd ex = MatrixXd::Zero( (N - degree -1), M);
+
         for (int i=0;i<M;i++)
-            ex.block<N-2,1>(0,i) = getPolyDerRoots(P.segment(i*N,N));
+            ex.block(0, i, N - degree - 1, 1) = 
+                getPolyDerRoots( P.segment(i * N, N), degree);
 
         return ex;
     }
@@ -614,6 +626,115 @@ namespace VoxelTrajectory
         }
 
         CI = combineColsPr(CI, make_pair(to_add, b));
+        return ret;
+    }
+
+    static bool checkDerExtremums(
+        const VectorXd &T,
+        const vector<double> & Lim,
+        const VectorXd &P,
+        const vector<MatrixXd> & Ex,
+        pair<SMatrixXd, VectorXd> & CI)
+    {
+        bool ret    = true;
+        VectorXd t  = VectorXd::Zero(N);
+        
+        for (int dgr = 2; dgr < 2 + Ex.size(); ++dgr)
+        {
+            list< pair<int, double> > l, r;
+
+            for (int idx = 0; idx < M; ++idx)
+            {
+                VectorXd ex = VectorXd::Zero(N - dgr + 1);
+                ex(0)   = 0.0;
+                ex(1)   = T(idx);
+                ex.segment(2, N - dgr - 1) = Ex[dgr - 2].col(idx);
+
+                for (int j = 0; j < N - dgr + 1; j++)
+                {
+                    if (ex(j) < 0 || ex(j) > T(idx)) 
+                        continue;
+
+                    t(0)    = 1.0;
+                    for (int k = 1; k < N; k++)
+                        t(k)    = t(k - 1) * ex(j);
+
+                    VectorXd p  = P.segment(idx * N, N);
+                    for (int i = 1; i < dgr; i++)
+                    {
+                        for (int k = 0; k < N; k++)
+                            p(k)    = (k + 1 < N) ? p(k + 1) * (k + 1) : 0.0;
+                    }
+
+                    double now = p.dot(t);
+
+                    if (now < -Lim[dgr - 2])
+                    {
+                        ret = false;
+                        l.push_back(make_pair(idx, ex(j)));
+                    }
+                    if (now > Lim[dgr - 2])
+                    {
+                        ret = false;
+                        r.push_back(make_pair(idx, ex(j)));
+                    }
+                }
+            }
+
+            SMatrixXd to_add(l.size() + r.size(), M * N);
+            to_add.reserve((N - dgr -1) * to_add.rows());
+            VectorXd    b = VectorXd::Zero(l.size() + r.size());
+
+            int i_ci = 0;
+            RowVectorXd coeff, t;
+
+            for (list<pair<int, double> >::iterator
+                it  = l.begin(); it != l.end(); ++it)
+            {
+                coeff   = RowVectorXd::Ones(N);
+                t       = RowVectorXd::Zero(N);
+                
+                t(dgr - 1)  = 1.0;
+                for (int k = dgr; k < N; k++) 
+                    t(k)    = t(k - 1) * it->second;
+
+                for (int i = 0; i < dgr - 1; i++)
+                    for (int k = 0; k < N; k++)
+                        coeff(k)    *= (k - i);
+
+                for (int k = dgr - 1; k < N; k++)
+                    to_add.insert(i_ci, it -> first * N + k) = -coeff(k) * t(k);
+
+                clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
+
+                b(i_ci++)   = Lim[dgr - 2] * (1.0 - _SAFE_RATE);
+            }
+
+            for (list<pair<int, double> >::iterator
+                it  = r.begin(); it != r.end(); ++it)
+            {
+                coeff   = RowVectorXd::Ones(N);
+                t       = RowVectorXd::Zero(N);
+
+                t(dgr - 1) = 1.0;
+                for (int k = dgr; k < N; k++)
+                    t(k)    = t(k - 1) * it->second;
+                    
+                for (int i = 0; i < dgr - 1; i++)
+                    for (int k = 0; k < N; k++)
+                        coeff(k)    *= (k - i);
+
+                for (int k = dgr - 1; k < N; k++)
+                    to_add.insert(i_ci, it -> first * N + k) = coeff(k) * t(k);
+
+                clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
+
+                b(i_ci++)   = Lim[dgr - 2] * (1.0 - _SAFE_RATE);
+            }
+
+            CI  = combineColsPr(CI, make_pair(to_add, b));
+        }
+
         return ret;
     }
 
@@ -902,7 +1023,6 @@ static int _error_code = 0;
         pair<SMatrixXd, VectorXd> CE_2   = getConstrainsContinuity(T);
         //clog << "4. Continuity." << endl;
         // Extremums
-        MatrixXd ex = MatrixXd(N-2,0);
 
         VectorXd P,D;
 
@@ -919,20 +1039,34 @@ static int _error_code = 0;
         CE.first = CE.first * IP2D;
         //clog << "6. CE."<<endl;
 
+        // constrains for the position boundary
         pair<SMatrixXd, VectorXd> CI_3 = make_pair(
             SMatrixXd(0, M*N), VectorXd::Zero(0));
+        MatrixXd ex = MatrixXd(N-2, 0);
+
+        // constrains for the limits
+        pair<SMatrixXd, VectorXd> CI_4 = make_pair(
+            SMatrixXd(0, M*N), VectorXd::Zero(0));
+            
+        vector<MatrixXd> derEx(2);
+        derEx[0]    = MatrixXd(N-3, 0);
+        derEx[1]    = MatrixXd(N-4, 0);
+
+        vector<double> derLim(2);
+        derLim[0]   = max_vel;
+        derLim[1]   = max_acc;
 
         for (int loop_v=0 ; loop_v<_N_LOOP; loop_v++)
         {
 
             // the inequality constrains
 
-            CI  = combineColsPr(CE_CI_1.second , CI_3);
+            CI  = combineColsPr(CE_CI_1.second , CI_3, CI_4);
             CI.first  = CI.first * IP2D;
 
             //clog << "7. CI." << endl;
 
-#ifdef _USE_DEBUG_PRINT_
+#if 0
             clog<< "h:" <<endl; printSM(H);
             clog<< "Q:" <<endl; printSM(Q);
             clog<< "IP2D:" <<endl; printSM(IP2D);
@@ -953,11 +1087,24 @@ static int _error_code = 0;
             //clog<<"P:\n"<<P<<endl;
             //clog<<"D:\n"<<D<<endl;
             
-            ex  = getExtremums(P);
+            ex          = getExtremums(P, 1);
+            derEx[0]    = getExtremums(P, 2);
+            derEx[1]    = getExtremums(P, 3);
+
 
             //clog << "8. ex." << endl;
-            if ((!_CHECK_EX)||checkExtremums(T,B,P,ex,CI_3))
+            if (!_CHECK_EX) 
                 break;
+            else
+            {
+                bool checkResult = 
+                    checkExtremums(T, B, P, ex, CI_3) &&
+                    checkDerExtremums(T, derLim, P, derEx, CI_4);
+                if (checkResult) 
+                    break;
+                else
+                    _error_code = 1;
+            }
             //clog << "9. check." << endl;
         }
 
@@ -1010,9 +1157,10 @@ static int _error_code = 0;
         retInit(PBE, p_s, p_t, B, E);
 
         // allocate time for each segment
-        T   = getTime_smart(p_s, p_t, E, vel);
-        T(0) /=1.0;
+        //T   = getTime_smart(p_s, p_t, E, vel);
+        T   = getTime_stupid(p_s, p_t, E, vel);
 
+        //clog<<"T:" <<T<<endl;
         // generate the coeff for polynomial traj
         P   = getTrajCoeff(p_s, p_t, B, E, T, vel, acc); 
 #ifdef _DEBUG_SCREEN_PRINT_
