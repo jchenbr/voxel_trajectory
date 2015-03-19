@@ -27,7 +27,7 @@ private:
         bool hasTraj;
         int  nTraj, nPoly;
 
-        MatrixXd P;
+        MatrixXd P, path;
         VectorXd T;
 
         double max_acc;
@@ -214,7 +214,7 @@ public:
                 VoxelTrajectory::VoxelGraph * graph = voxel_graph;
                 graph->SetUp(p[0], p[1], voxel_map);
 
-                Eigen::MatrixXd path = graph->getPathMatrix();
+                path = graph->getPathMatrix();
                 clog<<"[ PATH ]: \n"<<path<<endl;
 
                 if (path.rows()<1)
@@ -349,6 +349,9 @@ public:
 
         VectorXd getTimeAllocation()
         {return T;}
+
+        MatrixXd getVoxelPath()
+        {return path;}
     };
 }
 

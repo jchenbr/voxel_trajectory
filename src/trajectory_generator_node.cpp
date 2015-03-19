@@ -14,6 +14,8 @@
 #include "nav_msgs/Path.h"
 #include "quadrotor_msgs/PositionCommand.h"
 #include "mavlink_message/PositionCommand.h"
+#include "visualization_msgs/MarkerArray.h"
+#include "visualization_msgs/Marker.h"
 
 #include "pcl/io/pcd_io.h"
 #include "pcl/point_types.h"
@@ -27,12 +29,14 @@ ros::Publisher desiredStatePub;
 ros::Publisher mavlinkStatePub;
 ros::Publisher mapPointsPub;
 ros::Publisher trajectoryPub;
+ros::Publisher voxelPathPub;
 
 // the server
 bool isOdom    = false;
 bool isMap = false;
 bool isTraj = false;
 bool isInit = false;
+bool isVis  = true;
 VoxelTrajectory::VoxelServer * server = NULL;
 VoxelTrajectory::VoxelServer * innerServer = NULL; 
 
@@ -60,7 +64,7 @@ deque<double> ptBuff;
 
 void VisualizeMap()
 {
-    if (!isMap) return ;
+    if (!isMap || !isVis) return ;
 
     vector<double> pt   = server->getPointCloud();
     float * pt32 = new float[pt.size()];
@@ -315,9 +319,61 @@ inline double getTotAcc(double x, double y , double z)
     return sqrt( x * x + y * y + z * z);
 }
 
+visualization_msgs::MarkerArray arrMarkers;
+
+void VisualizePath()
+{
+    if (!isTraj || !isVis) return; 
+    Eigen::MatrixXd    path    = server->getVoxelPath();
+    clog << "<PATH>:\n" << path;
+
+    int M   = path.rows() >> 1;
+
+    for (auto & it : arrMarkers.markers)
+        it.action  = visualization_msgs::Marker::DELETE;
+
+    voxelPathPub.publish(arrMarkers);
+    arrMarkers.markers.resize(0);
+    arrMarkers.markers.reserve(M);
+
+    visualization_msgs::Marker  marker;
+    marker.header.frame_id  = "/map";
+    marker.header.stamp     = odomTime;
+    marker.ns               = "voxel_path";
+    marker.type             = visualization_msgs::Marker::CUBE;
+    marker.action           = visualization_msgs::Marker::ADD;
+    marker.pose.orientation.x   = 0.0;
+    marker.pose.orientation.y   = 0.0;
+    marker.pose.orientation.z   = 0.0;
+    marker.pose.orientation.w   = 1.0;
+    marker.color.a  = 0.2;
+    marker.color.b  = 0.0;
+    marker.color.r  = 0.0;
+    marker.color.g  = 4.0;
+
+    for (int idx  = 1; idx <= M; ++idx)
+    {
+        Eigen::RowVectorXd box = path.row(idx);
+        
+        marker.id   = idx;
+
+        marker.pose.position.x    = (box(_BDY_x) + box(_BDY_X)) * 0.5;
+        marker.pose.position.y    = (box(_BDY_y) + box(_BDY_Y)) * 0.5;
+        marker.pose.position.z    = (box(_BDY_z) + box(_BDY_Z)) * 0.5;
+
+        marker.scale.x  = box(_BDY_X) - box(_BDY_x);
+        marker.scale.y  = box(_BDY_Y) - box(_BDY_y);
+        marker.scale.z  = box(_BDY_Z) - box(_BDY_z);
+        
+        arrMarkers.markers.push_back(marker);
+    }
+
+    voxelPathPub.publish(arrMarkers);
+}
+
 void VisualizeTraj()
 {
-    if (!isTraj) return ;
+    if (!isTraj || !isVis) return ;
 
     double t_begin = server->getBeginTime();
     double t_final = server->getFinalTime();
@@ -338,6 +394,7 @@ void VisualizeTraj()
         pose.pose.position.x    = state[0 * _TOT_DIM + _DIM_x];
         pose.pose.position.y    = state[0 * _TOT_DIM + _DIM_y];
         pose.pose.position.z    = state[0 * _TOT_DIM + _DIM_z];
+
 #ifdef _FLAG_ACC_CHECK_
         if (getTotAcc(state[3], state[4], state[5]) > maxAcc * 1.5)
         {
@@ -351,6 +408,8 @@ void VisualizeTraj()
 
     ROS_WARN("<<GOT TRAJ!>>");
     trajectoryPub.publish(path);
+
+    VisualizePath();
     
 #ifdef _FLAG_ACC_CHECK_
     if (iSafe)
@@ -414,6 +473,7 @@ int main(int argc, char ** argv)
 
     posCMD.header.frame_id = "/voxel_trajectory";
 
+    handle.param("/init/is_vis", isVis, true);
     handle.param("/init/signal", isInit, false);
     handle.param("/init/pos/x", posCMD.position.x, 0.0);
     handle.param("/init/pos/y", posCMD.position.y, 0.0);
@@ -482,11 +542,14 @@ int main(int argc, char ** argv)
     mavlinkStatePub = handle.advertise
         <mavlink_message::PositionCommand>("mavlink_state", 50);
 
-    mapPointsPub  = handle.advertise
+    mapPointsPub    = handle.advertise
         <sensor_msgs::PointCloud2>("map_points", 2);
 
-    trajectoryPub  = handle.advertise
+    trajectoryPub   = handle.advertise
         <nav_msgs::Path>("trajectory", 2);
+
+    voxelPathPub    = handle.advertise
+        <visualization_msgs::MarkerArray>("voxel_path", 2);
 
     ros::spin();
 

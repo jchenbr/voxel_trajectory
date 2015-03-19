@@ -41,7 +41,8 @@ const static int _DER_MIN  =   3;
 const static bool _CHECK_EX   = true;
 const static double _MARGIN_EX = 0.002;
 const static double _SAFE_RATE  = 0.05;
-const static double _PLAN_RATE  = 0.66;
+const static double _PLAN_RATE  = 0.69;
+const static double _LIM_RATE   = 0.69;
 static int M;
 
 const static int _BUFF_SIZE = 256;
@@ -116,14 +117,14 @@ namespace VoxelTrajectory
 
         if (E.rows()  == 0)
         {
-            T(0) = getTransTime( p_s, p_t, vel.col(0), VectorXd::Zero(_TOT_DIM));
+            T(0) = getTransTime( p_s, p_t, vel.col(0), VectorXd::Zero(_TOT_DIM)) * 2.0;
             return T;
         }
 
         T(0)    = getTransTime(p_s, getCenter(E.row(0)), 
-                                vel.col(0), VectorXd::Zero(_TOT_DIM));
+                                vel.col(0), VectorXd::Zero(_TOT_DIM)) * 2.0;
         T(M-1)  = getTransTime(p_t, getCenter(E.row(M-2)), 
-                                vel.col(1), VectorXd::Zero(_TOT_DIM));
+                                vel.col(1), VectorXd::Zero(_TOT_DIM)) * 2.0;
         
         for (int i = 1; i < M-1; i++)
         {
@@ -194,10 +195,10 @@ namespace VoxelTrajectory
         {
             double distance = (p_t - getCenter(E.row(M-2)) ).norm();
             
-            if (distance< (0.5 * maxVel * maxVel / maxAcc) )
+            //if (distance< (0.5 * maxVel * maxVel / maxAcc) )
                 T(M-1)  = distance/ maxVel * 2.0;
-            else 
-                T(M-1)  = maxVel/maxVel + (distance - (0.5 * maxVel * maxVel / maxAcc))/maxVel ;
+            //else 
+            //    T(M-1)  = maxVel/maxVel + (distance - (0.5 * maxVel * maxVel / maxAcc))/maxVel ;
         }
         for (int i = 1; i < M-1; i++)
         {
@@ -1053,8 +1054,8 @@ static int _error_code = 0;
         derEx[1]    = MatrixXd(N-4, 0);
 
         vector<double> derLim(2);
-        derLim[0]   = max_vel;
-        derLim[1]   = max_acc;
+        derLim[0]   = max_vel * _LIM_RATE;
+        derLim[1]   = max_acc * _LIM_RATE;
 
         for (int loop_v=0 ; loop_v<_N_LOOP; loop_v++)
         {
@@ -1158,7 +1159,7 @@ static int _error_code = 0;
 
         // allocate time for each segment
         //T   = getTime_smart(p_s, p_t, E, vel);
-        T   = getTime_stupid(p_s, p_t, E, vel);
+        T   = getTime_smart(p_s, p_t, E, vel);
 
         //clog<<"T:" <<T<<endl;
         // generate the coeff for polynomial traj
