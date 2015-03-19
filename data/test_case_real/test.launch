@@ -81,8 +81,14 @@
     <param  name = "map_z_lower_bound"  value = "0.0"/>
     <param  name = "map_z_upper_bound"  value = "10.0"/>
 
+    <param  name = "/voxel/resolution"  value = "0.4"/>
+
+    <param  name = "/voxel/maxVelocity"  value = "1.0"/>
+    <param  name = "/voxel/maxAccleration"  value = "1.0"/>
+
+
     <param  name = "bridge_mode"  value = "1"/>
-    <param  name = "/test/test_distance"  value = "5.0"/>
+    <param  name = "/test/test_distance"  value = "1.0"/>
 
     <param  name = "init/signal" value = "false"/>
 
