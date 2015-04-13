@@ -26,6 +26,9 @@ include_directories(
 
 include_directories(VoxelTrajectory/include)
 
+# for c++
+set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -126,9 +129,9 @@ add_library(trajectorygenerator_	src/voxel_trajectory/trajectorygenerator.cpp)
 ## Declare a cpp executable
 # add_executable(voxel_trajecory_node src/voxel_trajecory_node.cpp)
 
-add_executable(test_voxel src/test_voxel.cpp)
+#add_executable(test_voxel src/test_voxel.cpp)
 
-add_executable(test_server src/test_server.cpp)
+#add_executable(test_server src/test_server.cpp)
 
 add_executable(mission_commander_node src/mission_commander_node.cpp)
 
@@ -146,35 +149,35 @@ add_executable(voxel_bridge_node src/voxel_bridge_node.cpp)
 #   ${catkin_LIBRARIES}
 # )
 
-target_link_libraries( test_voxel
-	#${catkin_LIBRARIES}
-	octomap_
-	voxelgraph_
-	trajectorygenerator_
+#target_link_libraries( test_voxel
+#	#${catkin_LIBRARIES}
+#	octomap_
+#	voxelgraph_
+#	trajectorygenerator_
+#
+#	ooqpgensparse
+#	ooqpsparse
+#	ooqpgondzio
+#	ooqpbase
+#	blas
+#	ma27
+#	gfortran
+#)
 
-	ooqpgensparse
-	ooqpsparse
-	ooqpgondzio
-	ooqpbase
-	blas
-	ma27
-	gfortran
-)
-
-target_link_libraries( test_server
-	#${catkin_LIBRARIES}
-	octomap_
-	voxelgraph_
-	trajectorygenerator_
-
-	ooqpgensparse
-	ooqpsparse
-	ooqpgondzio
-	ooqpbase
-	blas
-	ma27
-	gfortran
-)
+#target_link_libraries( test_server
+#	#${catkin_LIBRARIES}
+#	octomap_
+#	voxelgraph_
+#	trajectorygenerator_
+#
+#	ooqpgensparse
+#	ooqpsparse
+#	ooqpgondzio
+#	ooqpbase
+#	blas
+#	ma27
+#	gfortran
+#)
 
 
 target_link_libraries( voxel_trajectory_generator_node

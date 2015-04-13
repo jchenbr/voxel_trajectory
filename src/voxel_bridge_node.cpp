@@ -7,19 +7,19 @@
 #include "geometry_msgs/Point.h"
 #include "std_msgs/Float64.h"
 #include "ros/console.h"
-
+using namespace std;
 ros::Subscriber initPosSub;
 ros::Subscriber deltaTimeSub;
 
 ros::Publisher  odomPub;
 ros::Publisher  destPub;
-
 nav_msgs::Odometry  odom;
 geometry_msgs::Point     dest;
 
 //
 
 const int _move_along_x = 1;
+const int _move_to_dest = 2;
 
 int bridge_mode;
 double test_distance = 0.0;
@@ -30,7 +30,17 @@ void getDest()
     {
         dest    = odom.pose.pose.position;
         dest.x  += test_distance;
+    }else if(bridge_mode == _move_to_dest)
+    {
+	ros::NodeHandle handle("~");
+	string destFile;
+	handle.getParam("/init/dest_file", destFile);
+	ROS_WARN("[dest_file] = %s", destFile.c_str());
+	ifstream fin(destFile);
+	fin >> dest.x >> dest.y >> dest.z;
+	fin.close();
     }
+    return ;
 }
 
 void InitPosCallback(const nav_msgs::Odometry & msg)
@@ -39,6 +49,7 @@ void InitPosCallback(const nav_msgs::Odometry & msg)
     odom.header.stamp   = ros::Time(0.0);
 
     getDest();
+    ROS_WARN("[dest] = %.3lf %.3lf %.3lf", dest.x, dest.y, dest.z);
 
     ros::Rate loop_rate(0.5);
 
