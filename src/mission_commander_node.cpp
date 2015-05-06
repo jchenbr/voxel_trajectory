@@ -12,7 +12,7 @@
 #include "ros/console.h"
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
-
+#include <random>
 using namespace std;
 
 void default_mode(ros::NodeHandle & handle);
@@ -210,9 +210,11 @@ void OdomCallback(const nav_msgs::Odometry & msg)
     odom = msg;
 }
 
+void obs_blk_dest(ros::NodeHandle & handle);
+
 void real_quad(ros::NodeHandle & handle)
 {
-    default_mode(handle);
+    obs_blk_dest(handle);
 
     ros::Publisher  posPub = 
         handle.advertise<nav_msgs::Odometry>("init_pos", 2);
@@ -229,8 +231,10 @@ void real_quad(ros::NodeHandle & handle)
     ros::Rate   wait_rate(1);
     ros::Rate   loop_rate(100);
 
+    ROS_WARN("Pub odom");
     while (ros::ok() && posPub.getNumSubscribers() == 0) 
         wait_rate.sleep();
+    ROS_WARN("Pub odom");
     posPub.publish(odom);
 
     double init_time = ros::Time::now().toSec();
@@ -361,10 +365,6 @@ void obs_blk_dest(ros::NodeHandle & handle)
     }
 
     ros::spinOnce();
-    while (ros::ok() )
-    {
-        loop_rate.sleep();
-    }
     delete[] blk;
 }
 

@@ -35,14 +35,15 @@ typedef Eigen::SparseMatrix<double> SMatrixXd;
 
 const static int N = _TOT_BDY;
 const static int R = _TOT_DIM;
-const static double _EPS  = 1e-11;
+const static double _EPS  = 1e-7;
 const static int _N_LOOP   = 10;
 const static int _DER_MIN  =   3;
 const static bool _CHECK_EX   = true;
 const static double _MARGIN_EX = 0.002;
 const static double _SAFE_RATE  = 0.05;
-const static double _PLAN_RATE  = 0.69;
-const static double _LIM_RATE   = 0.69;
+const static double _PLAN_RATE  = 1.0;
+const static double _LIM_RATE   = 1.0;
+const static double _BEG_FIN_RELAX_RATE = 1.5;
 static int M;
 
 const static int _BUFF_SIZE = 256;
@@ -70,6 +71,8 @@ namespace VoxelTrajectory
         const VectorXd &vel0,
         const VectorXd &vel1)
     {
+        //clog << "p_0:\n" << p0 << endl;
+        //clog << "p_1:\n" << p1 << endl;
         VectorXd direct = p1 - p0;
         double distance = direct.norm();
         direct  /= distance;
@@ -101,7 +104,7 @@ namespace VoxelTrajectory
             t0  = (Vel_s < 0) * (2.0 * aVel_s / maxAcc);
             t1  = (maxVel - aVel_s) / maxAcc;
             t3  = maxVel / maxAcc;
-            t2  = (distance - 0.5*(maxVel + aVel_s)*t1 - 0.5 * maxVel * t3)/maxVel;
+            t2  = (distance - 0.5 * (maxVel + aVel_s) * t1 - 0.5 * maxVel * t3) / maxVel;
         }
 
         return t0 + t1 + t2 + t3;
@@ -117,14 +120,14 @@ namespace VoxelTrajectory
 
         if (E.rows()  == 0)
         {
-            T(0) = getTransTime( p_s, p_t, vel.col(0), VectorXd::Zero(_TOT_DIM)) * 2.0;
+            T(0) = getTransTime( p_s, p_t, vel.col(0), VectorXd::Zero(_TOT_DIM)) * _BEG_FIN_RELAX_RATE;
             return T;
         }
 
         T(0)    = getTransTime(p_s, getCenter(E.row(0)), 
-                                vel.col(0), VectorXd::Zero(_TOT_DIM)) * 2.0;
+                                vel.col(0), VectorXd::Zero(_TOT_DIM)) * _BEG_FIN_RELAX_RATE;
         T(M-1)  = getTransTime(p_t, getCenter(E.row(M-2)), 
-                                vel.col(1), VectorXd::Zero(_TOT_DIM)) * 2.0;
+                                vel.col(1), VectorXd::Zero(_TOT_DIM)) * _BEG_FIN_RELAX_RATE;
         
         for (int i = 1; i < M-1; i++)
         {
@@ -309,18 +312,17 @@ namespace VoxelTrajectory
         for (int i=1; i<N+N; i++)
             t_[i] = t_[i-1]*t;
 
-        for (int i=_DER_MIN; i<N ;i++)
+        for (int i = _DER_MIN; i < N ;i++)
         {
-            for (int j=_DER_MIN; j<N; j++)
+            for (int j = _DER_MIN; j < N; j++)
             {
-                double coeff = 1.0;
-                for (int k=0;k<_DER_MIN;k++)
-                    coeff   *= (i-k)*(j-k);
+                int now  = (i - _DER_MIN) + (j - _DER_MIN) + 1;
+                double coeff = pow(t, now) / now;
 
-                int now  = (i-_DER_MIN) +(j-_DER_MIN)+1;
-                coeff   /=now;
+                for (int k = 0; k < _DER_MIN; k++)
+                    coeff   *= (i - k) * ( j - k);
                 
-                H.insert(i,j)  = coeff*t_[now];
+                H.insert(i,j)  = coeff;
             }
         }
         return H;
@@ -377,7 +379,6 @@ namespace VoxelTrajectory
             P2D = P2D.inverse();
             for (int r=0; r<N; r++)
                 for (int c=0; c<N; c++)
-                    if (abs(P2D(r,c)) >_EPS)
                     A.insert(i*N +r, i*N +c) = P2D(r,c);
         }
         return A;
@@ -426,41 +427,103 @@ namespace VoxelTrajectory
     static pair< pair<SMatrixXd, VectorXd>, pair<SMatrixXd,VectorXd> > 
     getConstrainsCorridors(
         const VectorXd &T,
+        const MatrixXd &B,
         const MatrixXd &E)
     {
-        int N_CE = 0,N_CI = 0;
-        for (int i = 0; i<M-1; i++)
+        int last = 0;
+        list<pair<int, double > > vecCE;
+        list<pair<int, pair<double, double> > > vecCI;
+
+        for (int i = 0; i < M - 1; i++)
         {
-            int val = (E(i,1)-E(i,0))>_EPS;
-            N_CI += val;
-            N_CE += 1-val;
+            if ( (B(i, 1) - B(i, 0)) + _EPS < (B(i + 1, 1) - B(i + 1, 0)) )
+            {
+                last = (last == -1) ? 0 : 1;
+            }else
+            {
+                last = -1;
+            }
+            //last = 0;
+
+            if ((E(i, 1) - E(i,0)) > _EPS)
+            {
+                vecCI.push_back(make_pair(i, 
+                        make_pair(E(i, 0), E(i, 1))));
+            }else
+            {
+                if (last == 0)
+                {
+                    vecCE.push_back(make_pair(i,E(i,0)));
+                }else
+                {
+                    int j = (last == 1) ? i + 1 : i;
+                    double l = min(B(j, 0), E(i, 0));
+                    double r = max(B(j, 1), E(i, 1));
+                    vecCI.push_back(make_pair(i, 
+                                make_pair(l, r)));
+                }
+            }
         }
 
-        SMatrixXd CE (N_CE   ,M*N ), CI (N_CI*2 ,M*N );
-        CE.reserve(N_CE*N);
-        CI.reserve(N_CI*2*N);
-        VectorXd CE_b = VectorXd::Zero(N_CE);
-        VectorXd CI_b = VectorXd::Zero(N_CI*2);
+        SMatrixXd CE (vecCE.size() , M * N );
+        SMatrixXd CI (vecCI.size() * 2 , M * N );
+
+        CE.reserve(vecCE.size() * N);
+        CI.reserve(vecCI.size() * 2 * N);
+
+        VectorXd CE_b = VectorXd::Zero(vecCE.size());
+        VectorXd CI_b = VectorXd::Zero(vecCI.size() * 2);
+
         int i_ce = 0,i_ci = 0;
 
+        for (auto & pr: vecCE)
+        {
+            int i = pr.first;
+            CE.insert(i_ce, (i + 1) * N + 0) = 1.0;
+            CE_b(i_ce) = pr.second;
+            i_ce += 1;
+        }
+
+        for (auto & pr: vecCI)
+        {
+            int i = pr.first;
+            CI.insert(i_ci, (i + 1) * N + 0) = -1.0;
+            CI_b(i_ci) = -pr.second.first;
+            i_ci += 1;
+
+            CI.insert(i_ci, (i + 1) * N + 0) = 1.0;
+            CI_b(i_ci) = pr.second.second;
+            i_ci += 1;        
+        }
+#if 0
         for (int i = 0; i < M-1; i++)
         {
-            if ((E(i,1)-E(i,0))>_EPS)
+            if ((E(i, 1) - E(i, 0)) > _EPS)
             {
-                CI.insert(i_ci,(i+1)*N + 0) = -1.0;
+                CI.insert(i_ci, (i + 1) * N + 0) = -1.0;
                 CI_b(i_ci)    = -E(i,0);
                 i_ci    += 1;
 
-                CI.insert(i_ci,(i+1)*N + 0) = 1.0;
+                CI.insert(i_ci, (i + 1) * N + 0) = 1.0;
                 CI_b(i_ci)    = E(i,1);
                 i_ci    += 1;
             }else
             {
-                CE.insert(i_ce,(i+1)*N + 0)  = 1.0;
-                CE_b(i_ce)  = E(i,0);
-                i_ce    += 1;
+                CI.insert(i_ci, (i + 1) * N + 0) = -1.0;
+                CI_b(i_ci)  = -min(B(i, 0), B(i + 1, 0));
+                i_ci    += 1;
+
+                CI.insert(i_ci, (i + 1) * N + 0) = 1.0;
+                CI_b(i_ci)  = max(B(i, 1), B(i + 1, 1));
+                i_ci    += 1;
+                //clog << "i = " << i << ", " << B.row(i) << ", " << B.row(i+1)<<endl;
             }
         }
+#endif
+
+        //clog << "Corridors_CI: \n" << CI << endl;
+        //clog << "Corridors_CI_b: \n" << CI_b << endl;
+        //clog << "Corridors_CE: \n" << CE << endl;
 
         return make_pair( make_pair(CE, CE_b),
                           make_pair(CI, CI_b));
@@ -637,6 +700,9 @@ namespace VoxelTrajectory
         const vector<MatrixXd> & Ex,
         pair<SMatrixXd, VectorXd> & CI)
     {
+        //clog << "Velocity Extremums:\n" << Ex[0] << endl;
+        //clog << "Acceleration Extremums:\n" << Ex[1] << endl;
+
         bool ret    = true;
         VectorXd t  = VectorXd::Zero(N);
         
@@ -683,7 +749,7 @@ namespace VoxelTrajectory
             }
 
             SMatrixXd to_add(l.size() + r.size(), M * N);
-            to_add.reserve((N - dgr -1) * to_add.rows());
+            to_add.reserve(N * to_add.rows());
             VectorXd    b = VectorXd::Zero(l.size() + r.size());
 
             int i_ci = 0;
@@ -708,7 +774,7 @@ namespace VoxelTrajectory
 
                 clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
 
-                b(i_ci++)   = Lim[dgr - 2] * (1.0 - _SAFE_RATE);
+                b(i_ci++)   = -Lim[dgr - 2] * (1.0 - _SAFE_RATE);
             }
 
             for (list<pair<int, double> >::iterator
@@ -813,7 +879,7 @@ static int _error_code = 0;
             for (SMatrixXd::InnerIterator it(Q,k); it; ++it)
             if (it.col() <= it.row()) //lower trianglur matrix
             {
-                N_Q+= abs(it.value())>_EPS;
+                N_Q += 1;
             }
 
         int iQ[N_Q], jQ[N_Q], i_q=0;
@@ -822,7 +888,7 @@ static int _error_code = 0;
         tmp.resize(N_Q);
         for (int k = 0; k<Q.outerSize(); ++k)
             for (SMatrixXd::InnerIterator it(Q,k); it; ++it)
-                if (it.col()<=it.row() && abs(it.value()) > _EPS)
+                if (it.col()<=it.row())
                 {
                     tmp[i_q++]=make_pair(make_pair(it.row(),it.col()),it.value());
                 }
@@ -841,7 +907,7 @@ static int _error_code = 0;
         for (int k = 0; k<CE.first.outerSize(); ++k)
             for (SMatrixXd::InnerIterator it(CE.first,k); it; ++it)
             {
-                N_CE += abs(it.value()) > _EPS;
+                N_CE += 1;
             }
         int iCE[N_CE], jCE[N_CE];
         double dCE[N_CE], b[N_CE_ROW];
@@ -850,7 +916,6 @@ static int _error_code = 0;
         tmp.resize(N_CE);
         for (int k = 0; k<CE.first.outerSize(); ++k)
             for (SMatrixXd::InnerIterator it(CE.first,k); it; ++it)
-            if (abs(it.value())>_EPS)
             {
                 tmp[i_ce++]=make_pair(make_pair(it.row(),it.col()),it.value());
             }
@@ -874,7 +939,7 @@ static int _error_code = 0;
         for (int k = 0; k<CI.first.outerSize(); ++k)
             for (SMatrixXd::InnerIterator it(CI.first,k); it; ++it)
             {
-                N_CI += abs(it.value()) > _EPS;
+                N_CI += 1;
             }
 
         int iCI[N_CI],jCI[N_CI];
@@ -886,7 +951,6 @@ static int _error_code = 0;
         tmp.resize(N_CI);
         for (int k = 0; k<CI.first.outerSize(); ++k)
             for (SMatrixXd::InnerIterator it(CI.first,k); it; ++it)
-            if (abs(it.value())>_EPS)
             {
                 tmp[i_ci++]=make_pair(make_pair(it.row(),it.col()),it.value());
             }
@@ -915,9 +979,9 @@ static int _error_code = 0;
         MatrixXd tmp;
         clog<<"QP Q:"<<endl;
         tmp = MatrixXd::Zero(N_X, N_X);
-        for (int i=0; i<N_Q; i++) tmp(iQ[i], jQ[i]) = dQ[i];
-        for (int i=0; i<tmp.rows(); i++)
-            for (int j=0; j<tmp.cols(); j++)
+        for (int i=0; i < N_Q; i++) tmp(iQ[i], jQ[i]) = dQ[i];
+        for (int i=0; i < tmp.rows(); i++)
+            for (int j=0; j < tmp.cols(); j++)
             if (abs(tmp(i,j))>_EPS) clog<<"("<<i<<","<<j<<")="<<tmp(i,j)<<endl;
         clog<<tmp<<endl<<endl;
 
@@ -972,7 +1036,7 @@ static int _error_code = 0;
         delete s;
         delete qp;
 
-        if (ierr==0)
+        if (ierr == 0)
         {
             clog<<"Successfully found the solution."<<endl;
         }else{
@@ -1003,6 +1067,7 @@ static int _error_code = 0;
     {
         //> Hessian Matrix 
         SMatrixXd H  = getCostMatrix(T);
+        MatrixXd COST;
 
         //clog << "0. H Fine." << endl;
         //> Mapping Matrix
@@ -1018,7 +1083,7 @@ static int _error_code = 0;
         //clog << "2. Endpoints." << endl;
         // Corridors
         pair<pair<SMatrixXd, VectorXd>, pair<SMatrixXd, VectorXd> > CE_CI_1 = 
-            getConstrainsCorridors(T,E);
+            getConstrainsCorridors(T , B, E);
         //clog << "3. Corriors." << endl;
         // Continuity
         pair<SMatrixXd, VectorXd> CE_2   = getConstrainsContinuity(T);
@@ -1083,8 +1148,10 @@ static int _error_code = 0;
 #ifdef _USE_SPARSE_
             D   = getPolyDer(Q, CE, CI);
 #endif
+
             //clog << "8.1 derivatives." << endl;
             P   = IP2D * D;
+            COST = P.transpose() * H * P;
             //clog<<"P:\n"<<P<<endl;
             //clog<<"D:\n"<<D<<endl;
             
@@ -1106,8 +1173,10 @@ static int _error_code = 0;
                 else
                     _error_code = 1;
             }
+            clog << "The loop number: " << loop_v << endl;
             //clog << "9. check." << endl;
         }
+        clog << "The COST = " << COST.coeff(0,0) << endl;
 
         return P;
     }
@@ -1158,8 +1227,9 @@ static int _error_code = 0;
         retInit(PBE, p_s, p_t, B, E);
 
         // allocate time for each segment
-        //T   = getTime_smart(p_s, p_t, E, vel);
+        //T   = getTime_stupid(p_s, p_t, E, vel);
         T   = getTime_smart(p_s, p_t, E, vel);
+        //T   *= 24.0 / T.sum();
 
         //clog<<"T:" <<T<<endl;
         // generate the coeff for polynomial traj

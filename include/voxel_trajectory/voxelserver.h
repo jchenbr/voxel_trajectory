@@ -34,7 +34,7 @@ private:
         double max_vel;
         double resolution;
         double margin;
-        double init_time;
+        double init_time, final_time;
         double bdy[_TOT_BDY];
 
         VoxelTrajectory::OctoMap * voxel_map;
@@ -94,6 +94,10 @@ public:
             if (!hasMap)
             {
                 hasMap  = true;
+                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
+            }else
+            {
+                delete voxel_graph;
                 voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
             }
         }
@@ -162,6 +166,10 @@ public:
             if (!hasMap)
             {
                 hasMap  = true;
+                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
+            }else
+            {
+                delete voxel_graph;
                 voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
             }
         }
@@ -264,6 +272,7 @@ public:
             nTraj   = T.rows();
 
             init_time = init_T;
+            final_time = init_T + T.sum();
 
             return ret;
         }
@@ -342,7 +351,7 @@ public:
         {return init_time;}
 
         double getFinalTime()
-        {return init_time + T.sum();}
+        {return final_time;} 
 
         MatrixXd getPolyCoeff()
         {return P;}
@@ -352,6 +361,25 @@ public:
 
         MatrixXd getVoxelPath()
         {return path;}
+
+        vector<double> getCheckPoint()
+        {
+            vector<double> ret, state;
+            double timeNow = init_time;
+            for (int i = 0; i < nTraj; i++)
+            {
+                state = getDesiredState(timeNow);
+                ret.push_back(state[_DIM_x]);
+                ret.push_back(state[_DIM_y]);
+                ret.push_back(state[_DIM_z]);
+                timeNow += T(i);
+            }
+
+            return ret;
+        }
+
+        bool isTraj()
+        {return this->hasTraj;}
     };
 }
 

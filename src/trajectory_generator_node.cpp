@@ -2,8 +2,10 @@
 #include <cstring>
 #include <string>
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <deque>
+#include <algorithm>
 
 #include "ros/console.h"
 #include "ros/ros.h"
@@ -30,6 +32,8 @@ ros::Publisher mavlinkStatePub;
 ros::Publisher mapPointsPub;
 ros::Publisher trajectoryPub;
 ros::Publisher voxelPathPub;
+ros::Publisher lineStripPub;
+ros::Publisher checkPointPub;
 
 // the server
 bool isOdom    = false;
@@ -37,6 +41,14 @@ bool isMap = false;
 bool isTraj = false;
 bool isInit = false;
 bool isVis  = true;
+
+//for dump
+bool isDump = false;
+ros::Time timeDump(0.0);
+ofstream fout;
+
+
+
 VoxelTrajectory::VoxelServer * server = NULL;
 VoxelTrajectory::VoxelServer * innerServer = NULL; 
 
@@ -67,6 +79,7 @@ void VisualizeMap()
     if (!isMap || !isVis) return ;
 
     vector<double> pt   = server->getPointCloud();
+
     float * pt32 = new float[pt.size()];
 
     for (size_t idx = 0; idx < pt.size(); idx++)
@@ -74,6 +87,20 @@ void VisualizeMap()
 
     //for (size_t idx = 0; idx < pt.size()/3; idx++) 
     //    ROS_WARN("Send: [%.3lf %.3lf %.3lf]", pt[idx*3 + 0], pt[idx*3 + 1], pt[idx*3 + 2]);
+    ROS_WARN("The number of Grid: %d", static_cast<int>(pt.size() / 3));
+    double bdy[_TOT_BDY] = {1e9, -1e9, 1e9, -1e9};
+    for (size_t idx = 0; idx * 3 < pt.size(); idx++)
+    {
+        bdy[_BDY_x] = min(bdy[_BDY_x], pt[idx * 3 + _BDY_x]);
+        bdy[_BDY_y] = min(bdy[_BDY_y], pt[idx * 3 + _BDY_y]);
+        bdy[_BDY_z] = min(bdy[_BDY_z], pt[idx * 3 + _BDY_z]);
+
+        bdy[_BDY_X] = max(bdy[_BDY_X], pt[idx * 3 + _BDY_X]);
+        bdy[_BDY_Y] = max(bdy[_BDY_Y], pt[idx * 3 + _BDY_Y]);
+        bdy[_BDY_Z] = max(bdy[_BDY_Z], pt[idx * 3 + _BDY_Z]);
+    }
+    ROS_WARN("The boundary of Map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf]",
+            bdy[_BDY_x], bdy[_BDY_X], bdy[_BDY_y], bdy[_BDY_Y], bdy[_BDY_z], bdy[_BDY_Z]);
 
     sensor_msgs::PointCloud2 ptCloud;
 
@@ -128,16 +155,25 @@ void PointCloudCallback(
     }
 
     float * data = (float *) cloud -> data.data();
-    vector<double > pt( cloud->width  * _TOT_BDY );
+    vector<double > pt;
+    pt.reserve( cloud->width  * _TOT_BDY );
     ROS_WARN("[Receive TOTAL]: %d", cloud->width); 
+    double bdy[6] = {-86.863, -36.186, -69.212, 9.111, 0 ,0}; 
+    double x, y;
     for (size_t idx = 0; idx < cloud->width; ++idx)
     {
-        pt[idx * _TOT_BDY + _BDY_x] = data[idx * _TOT_DIM + _DIM_x] - safeMargin;
-        pt[idx * _TOT_BDY + _BDY_X] = data[idx * _TOT_DIM + _DIM_x] + safeMargin;
-        pt[idx * _TOT_BDY + _BDY_y] = data[idx * _TOT_DIM + _DIM_y] - safeMargin;
-        pt[idx * _TOT_BDY + _BDY_Y] = data[idx * _TOT_DIM + _DIM_y] + safeMargin;
-        pt[idx * _TOT_BDY + _BDY_z] = data[idx * _TOT_DIM + _DIM_z] - safeMargin;
-        pt[idx * _TOT_BDY + _BDY_Z] = data[idx * _TOT_DIM + _DIM_z] + safeMargin;
+        x = data[idx * _TOT_DIM + _DIM_x];
+        y = data[idx * _TOT_DIM + _DIM_y];
+        if (x < bdy[_BDY_x] || x > bdy[_BDY_X] || y < bdy[_BDY_y] || y > bdy[_BDY_Y])
+            continue;
+        x -= bdy[_BDY_x];
+        y -= bdy[_BDY_y];
+        pt.push_back(x - safeMargin);
+        pt.push_back(x + safeMargin);
+        pt.push_back(y - safeMargin);
+        pt.push_back(y + safeMargin);
+        pt.push_back(data[idx * _TOT_DIM + _DIM_z] - safeMargin);
+        pt.push_back(data[idx * _TOT_DIM + _DIM_z] + safeMargin);
     }
 
     server->addMapBlock(pt);
@@ -210,7 +246,9 @@ void trySetTraj()
     endState[0 * _TOT_DIM + _DIM_z] = ptBuff[2];
 
     isTraj  = false;
+    ros::Time begin = ros::Time::now();
     int server_ret = server->setPoints(begState, endState, odomTime.toSec());
+    ROS_WARN("[The time of trajectory generation : %.9lf]", (ros::Time::now() - begin).toSec());
     
     ROS_WARN("The traj status is %d.", server_ret);
     if (server_ret == 0) return ; 
@@ -236,6 +274,7 @@ void pubMavlinkCMD()
     posCMD_ml.kx    = posCMD.kx;
     posCMD_ml.kv    = posCMD.kv;
 
+    posCMD_ml.header.stamp = odomTime;
     mavlinkStatePub.publish(posCMD_ml);
 }
 
@@ -272,10 +311,56 @@ void OdometryCallback(
     {
         desiredStatePub.publish(posCMD);
     }
-#if 1
-    if (isTraj)
+    else if (server->isTraj() == false)
     {
-        vector<double> state = server->getDesiredState(odomTime.toSec());
+        posCMD.position.x = estPos[_DIM_x];
+        posCMD.position.y = estPos[_DIM_y];
+        posCMD.position.z = estPos[_DIM_z];
+
+        posCMD.velocity.x = 0.0;
+        posCMD.velocity.y = 0.0;
+        posCMD.velocity.z = 0.0;
+        
+        posCMD.acceleration.x = 0.0;
+        posCMD.acceleration.y = 0.0;
+        posCMD.acceleration.z = 0.0;
+
+        posCMD.yaw = yaw;
+        posCMD.yaw_dot = 0.0;
+    }
+    else
+    {
+        vector<double> state;
+        if (isTraj){
+            state = server->getDesiredState(
+                    odomTime.toSec());
+
+            if (fout.is_open())
+            {
+                fout << odom->pose.pose.position.x << " ";
+                fout << odom->pose.pose.position.y << " ";
+                fout << odom->pose.pose.position.z << " ";
+                fout << odom->twist.twist.linear.x << " ";
+                fout << odom->twist.twist.linear.y << " ";
+                fout << odom->twist.twist.linear.z << " ";
+                fout << state[0] << " ";
+                fout << state[1] << " ";
+                fout << state[2] << " ";
+                fout << state[3] << " ";
+                fout << state[4] << " ";
+                fout << state[5] << " ";
+                fout << state[6] << " ";
+                fout << state[7] << " ";
+                fout << state[8] << " ";
+                fout << (odom->header.stamp.toSec() - server->getBeginTime())<< endl;
+            }
+        }else 
+        {
+            if (fout.is_open()) fout.close();
+                
+            state = server->getDesiredState(
+                    server->getFinalTime());
+        }
 
         if (odomTime.toSec() > server->getFinalTime()) 
         {
@@ -307,10 +392,10 @@ void OdometryCallback(
         posCMD.yaw = yaw;
         posCMD.yaw_dot = 0;
 
+        posCMD.header.stamp = odomTime;
         desiredStatePub.publish(posCMD);
         pubMavlinkCMD();
     }
-#endif
 }
 
 
@@ -325,8 +410,8 @@ void VisualizePath()
 {
     if (!isTraj || !isVis) return; 
     Eigen::MatrixXd    path    = server->getVoxelPath();
-    clog << "<PATH>:\n" << path;
-
+    //clog << "<PATH>:\n" << path;
+    
     int M   = path.rows() >> 1;
 
     for (auto & it : arrMarkers.markers)
@@ -371,9 +456,88 @@ void VisualizePath()
     voxelPathPub.publish(arrMarkers);
 }
 
+void VisualizeCheckPoint()
+{
+    sensor_msgs::PointCloud2 cloud;
+    cloud.header.stamp = odomTime;
+    cloud.header.frame_id = string("/map");
+    
+    vector<double> pt = server->getCheckPoint();
+    if (fout.is_open())
+    {
+        for (int i = 0; i < pt.size() / 3; i++)
+            fout << pt[i * 3 + 0] << " " << pt[i * 3 + 1] << " " << pt[i * 3 +2] << endl;
+        fout << "-" << endl;
+    }
+
+    cloud.height = 1;
+    cloud.width  = pt.size() / 3;
+    cloud.is_dense = true;
+    cloud.is_bigendian = false;
+    
+    cloud.point_step = _TOT_DIM * 4;
+    cloud.row_step = cloud.point_step * cloud.width;
+
+    sensor_msgs::PointField f;
+
+    cloud.fields.resize(_TOT_DIM);
+    string f_name[] = {string("x"), string("y"), string("z")};
+
+    for (size_t idx = 0; idx < _TOT_DIM; ++idx)
+    {
+        f.name      = f_name[idx];
+        f.offset    = idx << 2;
+        f.datatype  = 7;
+        f.count     = 1;
+        cloud.fields[idx] = f;
+    } 
+
+    float * data = new float[pt.size()];
+
+    for (size_t idx = 0; idx < pt.size(); ++idx)
+        data[idx] = pt[idx];
+
+    cloud.data.resize(cloud.row_step);
+    uint8_t * dataRaw = (uint8_t *) data;
+
+    for (size_t idx = 0; idx < cloud.row_step; ++idx)
+        cloud.data[idx] = dataRaw[idx];
+
+    checkPointPub.publish(cloud);
+
+    delete [] data;
+}
+
+visualization_msgs::Marker line_strip;
 void VisualizeTraj()
 {
     if (!isTraj || !isVis) return ;
+
+    line_strip.header.stamp     = ros::Time::now();
+    line_strip.header.frame_id  = "/map";
+
+    line_strip.action   = visualization_msgs::Marker::DELETE;
+    lineStripPub.publish(line_strip);
+
+    line_strip.ns = "line_strip";
+    line_strip.id = 0;
+    line_strip.type     = visualization_msgs::Marker::SPHERE_LIST;
+    line_strip.action   = visualization_msgs::Marker::ADD;
+    line_strip.scale.x  = 0.1;
+    line_strip.scale.y  = 0.1;
+    line_strip.scale.z  = 0.1;
+
+    line_strip.pose.orientation.x = 0.0;
+    line_strip.pose.orientation.y = 0.0;
+    line_strip.pose.orientation.z = 0.0;
+    line_strip.pose.orientation.w = 1.0;
+
+    line_strip.color.r  = 1.0;
+    line_strip.color.g  = 0.0;
+    line_strip.color.b  = 0.0;
+    line_strip.color.a  = 1.0;
+
+
 
     double t_begin = server->getBeginTime();
     double t_final = server->getFinalTime();
@@ -386,14 +550,30 @@ void VisualizeTraj()
     pose.header = path.header;
 
     vector<double> state;
+    
+    line_strip.points.resize(0);
+    line_strip.points.reserve(static_cast<int>((t_final - t_begin) * 100 + 0.5));
+    geometry_msgs::Point pt;
+    Eigen::Vector3d cur, pre; 
+
+    double _tot_length = 0.0;
 
     int count = 0, iSafe = 0;
     for (double t = t_begin; t < t_final; t += 0.01, count += 1)
     {
         state = server->getDesiredState(t);
-        pose.pose.position.x    = state[0 * _TOT_DIM + _DIM_x];
-        pose.pose.position.y    = state[0 * _TOT_DIM + _DIM_y];
-        pose.pose.position.z    = state[0 * _TOT_DIM + _DIM_z];
+        cur(0) = pt.x = pose.pose.position.x    = state[0 * _TOT_DIM + _DIM_x];
+        cur(1) = pt.y = pose.pose.position.y    = state[0 * _TOT_DIM + _DIM_y];
+        cur(2) = pt.z = pose.pose.position.z    = state[0 * _TOT_DIM + _DIM_z];
+
+        line_strip.points.push_back(pt);
+        
+        if (count)
+            _tot_length += (pre - cur).norm();
+
+        pre = cur;
+
+
 
 #ifdef _FLAG_ACC_CHECK_
         if (getTotAcc(state[3], state[4], state[5]) > maxAcc * 1.5)
@@ -406,10 +586,14 @@ void VisualizeTraj()
         path.poses.push_back(pose);
     }
 
-    ROS_WARN("<<GOT TRAJ!>>");
+    ROS_WARN("<<GOT TRAJ!>>");  
+    ROS_WARN("The length of the trajectory: %.9lf", _tot_length);
+
+    lineStripPub.publish(line_strip);
     trajectoryPub.publish(path);
 
     VisualizePath();
+    VisualizeCheckPoint();
     
 #ifdef _FLAG_ACC_CHECK_
     if (iSafe)
@@ -473,6 +657,11 @@ int main(int argc, char ** argv)
 
     posCMD.header.frame_id = "/voxel_trajectory";
 
+    string dump_file;
+    handle.param("/dump_file", dump_file, string(""));
+    if (dump_file.length() > 0)
+        fout.open(dump_file.c_str());
+
     handle.param("/init/is_vis", isVis, true);
     handle.param("/init/signal", isInit, false);
     handle.param("/init/pos/x", posCMD.position.x, 0.0);
@@ -516,8 +705,8 @@ int main(int argc, char ** argv)
         server = new VoxelTrajectory::VoxelServer;
         server->setResolution(mapVoxelResolution);
         server->setMapBoundary(mapBdy);
-        server->setMaxAcceleration(maxVel);
-        server->setMaxVelocity(maxAcc);
+        server->setMaxAcceleration(maxAcc);
+        server->setMaxVelocity(maxVel);
 
         innerServer = new VoxelTrajectory::VoxelServer;
         innerServer->setMapBoundary(mapBdy);
@@ -550,6 +739,12 @@ int main(int argc, char ** argv)
 
     voxelPathPub    = handle.advertise
         <visualization_msgs::MarkerArray>("voxel_path", 2);
+
+    lineStripPub    = handle.advertise
+        <visualization_msgs::Marker>("line_strip", 2);
+
+    checkPointPub   = handle.advertise
+        <sensor_msgs::PointCloud2>("check_point", 2);
 
     ros::spin();
 

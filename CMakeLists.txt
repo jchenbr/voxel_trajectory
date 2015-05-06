@@ -139,6 +139,10 @@ add_executable(voxel_trajectory_generator_node src/trajectory_generator_node.cpp
 
 add_executable(voxel_bridge_node src/voxel_bridge_node.cpp)
 
+add_executable(voxel_bridge_enhanced_node src/voxel_bridge_enhanced_node.cpp)
+
+add_executable(voxel_set_obstacle_node src/voxel_set_obstacle_node.cpp)
+
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -218,6 +222,15 @@ target_link_libraries( mission_commander_node
 target_link_libraries( voxel_bridge_node
 	${catkin_LIBRARIES}
 )
+
+target_link_libraries( voxel_bridge_enhanced_node
+	${catkin_LIBRARIES}
+)
+
+target_link_libraries(voxel_set_obstacle_node
+    ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############
