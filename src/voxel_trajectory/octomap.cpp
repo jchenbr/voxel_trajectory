@@ -10,7 +10,9 @@ const static int _TAG_NUL   = 0;
 const static int _TAG_EMP   = 1;
 const static int _TAG_OBS   = 2;
 const static int _TAG_MIX   = 3;
+const static int _TAG_TAL   = 4;
 const static int _NODE_NULL = 0;
+const static int _NODE_ROOT = 1;
 
 namespace VoxelTrajectory
 {
@@ -21,27 +23,28 @@ namespace VoxelTrajectory
     {
     }
 
-    OctoMap::Node::Node(const double bdy[_TOT_BDY],int son[_TOT_CHD],int id,int tag)
+    OctoMap::Node::Node(const double bdy[_TOT_BDY], const int son[_TOT_CHD], int id, int tag)
     {
+        assert(_TAG_NUL <= tag  && tag < _TAG_TAL);
+
         this->id    = id;
 
-        if (bdy==NULL)
+        if (bdy == NULL)
             memset(this->bdy, 0, sizeof(this->bdy));
         else
             memcpy(this->bdy, bdy, sizeof(this->bdy));
 
-        if (son==NULL)
-            memset(this->son, _NODE_NULL ,sizeof(this->son));
+        if (son == NULL)
+            memset(this->son, 0, sizeof(this->bdy));
         else
-            memcpy(this->son, son ,sizeof(this->son));
+            memcpy(this->son, son, sizeof(this->son));
 
         this->tag   = tag;
     }
 
-    void OctoMap::addNode(const double bdy[_TOT_BDY],int son[_TOT_CHD],int tag)
+    void OctoMap::addNode(const double bdy[_TOT_BDY], const int son[_TOT_CHD], int tag)
     {
-        node.push_back(OctoMap::Node(bdy,son,N,tag));
-        N+=1;
+        node.push_back(OctoMap::Node(bdy, son, (int)node.size(), tag));
     }
 
     OctoMap::OctoMap(std::string filename)
@@ -49,17 +52,46 @@ namespace VoxelTrajectory
         this->loadFromFile(filename);
     }
 
-    OctoMap::OctoMap(const double bdy[_TOT_BDY],double resolution)
+    OctoMap::OctoMap(const double bdy[_TOT_BDY], double resolution)
     {
-        this->N   = 0;
+        // it must be a legal 3-D space;
+        assert
+            (
+                (bdy[_BDY_x] < bdy[_BDY_X]) && 
+                (bdy[_BDY_y] < bdy[_BDY_Y]) &&
+                (bdy[_BDY_z] < bdy[_BDY_Z])
+            );
+        //clog << "?????????????????????????????????????????????????????????" << endl;
+
+        // this is the allowed minimal grid volume
         this->resolution    = resolution;
+
         // NULL Node
-        addNode(NULL,NULL,_TAG_NUL);
-        node[0].bdy[_BDY_X] -= eps;
-        node[0].bdy[_BDY_Y] -= eps;
-        node[0].bdy[_BDY_Z] -= eps;
-        // The big picture
-        addNode(bdy,NULL,_TAG_EMP);
+        addNode(NULL, NULL, _TAG_NUL);
+        node[_NODE_NULL].bdy[_BDY_X] -= eps;
+        node[_NODE_NULL].bdy[_BDY_Y] -= eps;
+        node[_NODE_NULL].bdy[_BDY_Z] -= eps;
+
+        // The big picture, set as tree root
+        addNode(bdy, NULL, _TAG_EMP);
+
+        atom.resize(_TOT_DIM);
+        atom[_DIM_x] = bdy[_BDY_X] - bdy[_BDY_x];
+        atom[_DIM_y] = bdy[_BDY_Y] - bdy[_BDY_y];
+        atom[_DIM_z] = bdy[_BDY_Z] - bdy[_BDY_z];
+
+        while (atom[_DIM_x] * atom[_DIM_y] * atom[_DIM_z] > resolution)
+        {
+            atom[_DIM_x] *= 0.5;
+            atom[_DIM_y] *= 0.5;
+            atom[_DIM_z] *= 0.5;
+        }
+        //clog << "atom = " << atom[_DIM_x] << ", " << atom[_DIM_y] << ", " << atom[_DIM_z] << endl;
+    }
+
+    inline bool OctoMap::isLeaf(const Node & node)
+    {
+        return (node.bdy[_BDY_X] - node.bdy[_BDY_x] < this->atom[_DIM_x] + eps);
     }
 
     static inline bool within(
@@ -67,17 +99,22 @@ namespace VoxelTrajectory
         const double bdy[_TOT_BDY])
     {
         return 
-            bdy[_BDY_x] < pt[_DIM_x]+eps && pt[_DIM_x] < bdy[_BDY_X] &&
-            bdy[_BDY_y] < pt[_DIM_y]+eps && pt[_DIM_y] < bdy[_BDY_Y] &&
-            bdy[_BDY_z] < pt[_DIM_z]+eps && pt[_DIM_z] < bdy[_BDY_Z];
+            bdy[_BDY_x] < pt[_DIM_x] + eps && pt[_DIM_x] < bdy[_BDY_X] &&
+            bdy[_BDY_y] < pt[_DIM_y] + eps && pt[_DIM_y] < bdy[_BDY_Y] &&
+            bdy[_BDY_z] < pt[_DIM_z] + eps && pt[_DIM_z] < bdy[_BDY_Z];
     }
 
     static inline double getVolume(const double bdy[_TOT_BDY])
     {
         return 
-            (bdy[_BDY_X] - bdy[_BDY_x])*
-            (bdy[_BDY_Y] - bdy[_BDY_y])*
+            (bdy[_BDY_X] - bdy[_BDY_x]) *
+            (bdy[_BDY_Y] - bdy[_BDY_y]) *
             (bdy[_BDY_Z] - bdy[_BDY_z]);
+    }
+
+    void OctoMap::insert(const double pt[_TOT_DIM])
+    {
+        insert(pt, _NODE_ROOT);
     }
 
     void OctoMap::insert(const double pt[_TOT_DIM], int rt)
@@ -90,7 +127,7 @@ namespace VoxelTrajectory
         node[rt].tag    |= _TAG_OBS;
 
         //check resolution
-        if (getVolume(node[rt].bdy) < this->resolution + eps)
+        if (isLeaf(node[rt]))
         {
             node[rt].tag    = _TAG_OBS;
             return ;
@@ -140,17 +177,30 @@ namespace VoxelTrajectory
         const double bdy[_TOT_BDY])
     {
         double tmp[_TOT_BDY];
+
         retSharedArea(box, bdy, tmp);
+
         return isHot(tmp);
     }
 
-    static bool Contained(
+    static bool testEnclose(
         const double box[_TOT_BDY],
         const double bdy[_TOT_BDY])
     {
         return box[_BDY_x] < bdy[_BDY_x] + eps && bdy[_BDY_X] < box[_BDY_X] + eps &&
                box[_BDY_y] < bdy[_BDY_y] + eps && bdy[_BDY_Y] < box[_BDY_Y] + eps &&
                box[_BDY_z] < bdy[_BDY_z] + eps && bdy[_BDY_Z] < box[_BDY_Z] + eps;
+    }
+
+    void OctoMap::insertBlock(const double bdy[_TOT_BDY])
+    {
+        assert(
+                (bdy[_BDY_x] < bdy[_BDY_X]) && 
+                (bdy[_BDY_y] < bdy[_BDY_Y]) && 
+                (bdy[_BDY_z] < bdy[_BDY_Z])
+              );
+
+        insertBlock(bdy, _NODE_ROOT);
     }
 
     void OctoMap::insertBlock(const double bdy[_TOT_BDY], int rt)
@@ -167,16 +217,15 @@ namespace VoxelTrajectory
         if (rt == _NODE_NULL) return;
         if (!isIntersected(bdy, node[rt].bdy)) return ;
 
-        node[rt].tag    |= _TAG_OBS;
+        splitNode(rt);
 
-        if (Contained(bdy, node[rt].bdy) || 
-            getVolume(node[rt].bdy) < this->resolution + eps)
+        node[rt].tag |= _TAG_OBS;
+
+        if (testEnclose(bdy, node[rt].bdy) || isLeaf(node[rt]))
         {
             node[rt].tag    = _TAG_OBS;
             return ;
         }
-
-        splitNode(rt);
 
         for (int chd = 0; chd < _TOT_CHD; chd++)
             insertBlock(bdy, node[rt].son[chd]);
@@ -244,34 +293,34 @@ namespace VoxelTrajectory
     // split the node into 8 subnode;
     void OctoMap::splitNode(int rt)
     {
-        if (node[rt].son[0]) return;
+        if (node[rt].son[0] || isLeaf(node[rt])) return;
 
         double * bdy = node[rt].bdy;
 
         double mid[_TOT_DIM] = 
         {
-            (bdy[_BDY_x]+bdy[_BDY_X])*0.5,
-            (bdy[_BDY_y]+bdy[_BDY_Y])*0.5,
-            (bdy[_BDY_z]+bdy[_BDY_Z])*0.5
+            (bdy[_BDY_x] + bdy[_BDY_X]) * 0.5,
+            (bdy[_BDY_y] + bdy[_BDY_Y]) * 0.5,
+            (bdy[_BDY_z] + bdy[_BDY_Z]) * 0.5
         };
 
         double BDY[_TOT_BDY][2] = 
         {
-            bdy[_BDY_x],mid[_DIM_x],mid[_DIM_x],bdy[_BDY_X],
-            bdy[_BDY_y],mid[_DIM_y],mid[_DIM_y],bdy[_BDY_Y],
-            bdy[_BDY_z],mid[_DIM_z],mid[_DIM_z],bdy[_BDY_Z]
+            bdy[_BDY_x], mid[_DIM_x], mid[_DIM_x], bdy[_BDY_X],
+            bdy[_BDY_y], mid[_DIM_y], mid[_DIM_y], bdy[_BDY_Y],
+            bdy[_BDY_z], mid[_DIM_z], mid[_DIM_z], bdy[_BDY_Z]
         };
 
-        for (int chd = 0; chd<_TOT_CHD; ++chd)
+        for (int chd = 0; chd < _TOT_CHD; ++chd)
         {
             double new_bdy[_TOT_BDY]=
             {   
-                BDY[_BDY_x][(chd>>_DIM_x)&1],BDY[_BDY_X][(chd>>_DIM_x)&1],
-                BDY[_BDY_y][(chd>>_DIM_y)&1],BDY[_BDY_Y][(chd>>_DIM_y)&1],
-                BDY[_BDY_z][(chd>>_DIM_z)&1],BDY[_BDY_Z][(chd>>_DIM_z)&1],
+                BDY[_BDY_x][(chd >> _DIM_x) & 1], BDY[_BDY_X][(chd >> _DIM_x) & 1],
+                BDY[_BDY_y][(chd >> _DIM_y) & 1], BDY[_BDY_Y][(chd >> _DIM_y) & 1],
+                BDY[_BDY_z][(chd >> _DIM_z) & 1], BDY[_BDY_Z][(chd >> _DIM_z) & 1],
             };
-            node[rt].son[chd]   = N;
-            addNode(new_bdy,NULL,_TAG_EMP);
+            node[rt].son[chd] = (int)node.size();
+            addNode(new_bdy, NULL, node[rt].tag);
         }
     }
 
@@ -279,16 +328,17 @@ namespace VoxelTrajectory
     void OctoMap::update(int rt)
     {
 #if 0
-        for (int chd = 0; chd<_TOT_CHD; ++chd)
+        for (int chd: node[rt].son)
         {
-            node[rt].tag    |= node[node[rt].son[chd]].tag;
+            node[rt].tag |= node[chd].tag;
         }
 #else       
         int * son = node[rt].son;
-        node[rt].tag    |= node[son[0]].tag | node[son[1]].tag;
-        node[rt].tag    |= node[son[2]].tag | node[son[3]].tag;
-        node[rt].tag    |= node[son[4]].tag | node[son[5]].tag;
-        node[rt].tag    |= node[son[6]].tag | node[son[7]].tag;
+        node[rt].tag |= 
+            node[son[0]].tag | node[son[1]].tag | 
+            node[son[2]].tag | node[son[3]].tag |
+            node[son[4]].tag | node[son[5]].tag |
+            node[son[6]].tag | node[son[7]].tag;
 #endif
     }
 
@@ -311,11 +361,12 @@ namespace VoxelTrajectory
         if (!isIntersected(bdy, node[rt].bdy))return;
 
         // check tag
-        if (node[rt].tag==_TAG_MIX)
+        if (node[rt].tag == _TAG_MIX)
         {
             for (int chd = 0; chd < _TOT_CHD; chd++)
-                query(node[rt].son[chd],from,bdy,graph);
-        }else if (node[rt].tag==_TAG_EMP)
+                query(node[rt].son[chd], from, bdy, graph);
+        }
+        else if (node[rt].tag == _TAG_EMP)
         {
             double bdy_i[_TOT_BDY];
             retSharedArea(bdy, node[rt].bdy, bdy_i);
@@ -327,7 +378,7 @@ namespace VoxelTrajectory
             clog<<"\n";
            }
 #endif
-            graph->add_bdy_id_id(bdy_i,rt,from);
+            graph->add_bdy_id_id(bdy_i, rt, from);
         }
     }
 
@@ -335,20 +386,20 @@ namespace VoxelTrajectory
     {
         std::ofstream fout(filename.c_str());
 
-        fout<<N<<"\t"<<resolution<<std::endl;
+        fout << node.size() << "\t" << resolution << std::endl;
 
         for (std::vector<OctoMap::Node>::iterator it = node.begin();
-            it!=node.end();it++)
+            it != node.end(); ++it)
         {
-            fout<<it->id<<"\t"<<it->tag;
+            fout << it->id << "\t" << it->tag;
 
             for (int i = 0; i < _TOT_BDY; i++)
-                fout<<"\t"<<it->bdy[i];
+                fout << "\t" << it->bdy[i];
 
             for (int chd = 0; chd < _TOT_CHD; chd++)
-                fout<<"\t"<<it->son[chd];
+                fout << "\t" << it->son[chd];
 
-            fout<<std::endl;
+            fout << std::endl;
         }
     }
 
@@ -356,44 +407,44 @@ namespace VoxelTrajectory
     {
         std::ifstream fin(filename.c_str());
 
-        fin>>N>>resolution;
+        int N;
+        fin >> N >> resolution;
 
         node = std::vector<OctoMap::Node>(N);
 
         for (std::vector<OctoMap::Node>::iterator it = node.begin();
             it!=node.end();it++)
         {
-            fin>>it->id>>it->tag;
+            fin >> it->id >> it->tag;
             
             for (int i = 0; i< _TOT_BDY ; i++)
-                fin>>it->bdy[i];
+                fin >> it->bdy[i];
 
             for (int chd = 0; chd < _TOT_CHD; chd++)
-                fin>>it->son[chd];
+                fin >> it->son[chd];
         }
     }
     
     void OctoMap::retBox(int id,double bdy[_TOT_BDY])
     {
-        memcpy(bdy,node[id].bdy,sizeof(node[id].bdy));
+        memcpy(bdy, node[id].bdy, sizeof(node[id].bdy));
     }
 
     void OctoMap::retGraph(VoxelGraph * graph)
     {
-        for (std::vector<OctoMap::Node>::iterator it = node.begin();
-            it!=node.end();it++)
+        for (auto it = node.begin(); it!=node.end(); ++it)
         {
-            if (it->tag!=_TAG_EMP) continue;
+            if (it->tag != _TAG_EMP) continue;
 
-            for (int dim=0; dim<_TOT_DIM; dim++)
+            double bdy[_TOT_BDY];
+
+            for (int dim = 0; dim < _TOT_DIM; dim++)
             {
-                double bdy[_TOT_BDY];
-                memcpy(bdy,it->bdy,sizeof(bdy));
+                memcpy(bdy, it->bdy, sizeof(bdy));
+                bdy[dim << 1] = bdy[dim << 1 | 1];
+                bdy[dim << 1 | 1] += eps;
 
-                bdy[dim*2]  = bdy[dim*2+1];
-                bdy[dim*2+1]    += eps;
-
-                query(1, it->id, bdy, graph);
+                query(_NODE_ROOT, it->id, bdy, graph);
             }
         }
     }
@@ -402,17 +453,85 @@ namespace VoxelTrajectory
     {
         std::vector<double> pt;
 
-        for (std::vector<Node>::iterator it = node.begin();
-             it != node.end(); ++it)
+        for (auto it = node.begin(); it != node.end(); ++it)
         {
-            if (it->son[0]==_NODE_NULL && it->tag==_TAG_OBS)
+            if (it->son[0] == _NODE_NULL && it->tag == _TAG_OBS)
             {
-                pt.push_back((it->bdy[_BDY_x] + it->bdy[_BDY_X])*0.5);
-                pt.push_back((it->bdy[_BDY_y] + it->bdy[_BDY_Y])*0.5);
-                pt.push_back((it->bdy[_BDY_z] + it->bdy[_BDY_Z])*0.5);
+                pt.push_back((it->bdy[_BDY_x] + it->bdy[_BDY_X]) * 0.5);
+                pt.push_back((it->bdy[_BDY_y] + it->bdy[_BDY_Y]) * 0.5);
+                pt.push_back((it->bdy[_BDY_z] + it->bdy[_BDY_Z]) * 0.5);
             }
         }
 
         return pt;
+    }
+
+    bool OctoMap::testEmpty(const double bdy[_TOT_BDY])
+    {
+        assert(
+                (bdy[_BDY_x] < bdy[_BDY_X]) &&
+                (bdy[_BDY_y] < bdy[_BDY_Y]) &&
+                (bdy[_BDY_z] < bdy[_BDY_Z])
+              );
+        return testEmpty(bdy, _NODE_ROOT);
+    }
+
+    bool OctoMap::testEmpty(const double bdy[_TOT_BDY], int rt)
+    {
+        if (rt == _NODE_NULL) return true;
+        if (!isIntersected(bdy, node[rt].bdy)) return true;
+
+        if (node[rt].tag == _TAG_EMP) return true;
+
+        splitNode(rt);
+
+        if (testEnclose(bdy, node[rt].bdy) || isLeaf(node[rt]))
+            return node[rt].tag == _TAG_EMP;
+
+        bool ret = true;
+        for (int chd = 0; chd < _TOT_CHD; chd++)
+            ret = ret && testEmpty(bdy, node[rt].son[chd]);
+
+        update(rt);
+        return ret;
+    }
+
+    bool OctoMap::inflateBdy(double bdy[_TOT_BDY], int direction[_TOT_BDY], int inflate_lim)
+    {
+        int L = 0, R = (node[_NODE_ROOT].bdy[_BDY_X] - node[_NODE_NULL].bdy[_BDY_x] + eps) 
+            / atom[_DIM_x];
+
+        if (inflate_lim >= 0) R = min(R, inflate_lim);
+
+        for (int dim = 0; dim < _TOT_BDY; ++dim)
+            if (direction[dim])
+                R = min(R, abs(node[_NODE_ROOT].bdy[dim] - bdy[dim] + eps) / atom[dim >> 1]);
+
+        int mid;
+       
+        while (L < R)
+        {
+            //clog << "L : " << L << ", Mid : " << mid << ", R : " << R << endl;
+            mid = (L + R + 1) >> 1;
+            double sub_bdy[_TOT_BDY] = 
+            {
+                bdy[_BDY_x] + mid * direction[_BDY_x] * atom[_DIM_x],
+                bdy[_BDY_X] + mid * direction[_BDY_X] * atom[_DIM_x],
+                bdy[_BDY_y] + mid * direction[_BDY_y] * atom[_DIM_y],
+                bdy[_BDY_Y] + mid * direction[_BDY_Y] * atom[_DIM_y],
+                bdy[_BDY_z] + mid * direction[_BDY_z] * atom[_DIM_z],
+                bdy[_BDY_Z] + mid * direction[_BDY_Z] * atom[_DIM_z],
+            };
+            if (testEmpty(sub_bdy))
+                L = mid;
+            else
+                R = mid - 1;
+        }
+        //clog << "[Finally] L : " << L << ", R : " << R << endl;
+
+        for (int dim = 0; dim < _TOT_BDY; ++dim)
+            bdy[dim] += L * direction[dim] * atom[dim >> 1];
+
+        return testEmpty(bdy);
     }
 }

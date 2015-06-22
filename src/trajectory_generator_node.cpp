@@ -746,6 +746,10 @@ int main(int argc, char ** argv)
     checkPointPub   = handle.advertise
         <sensor_msgs::PointCloud2>("check_point", 2);
 
+    ros::Publisher inflated_grid_pub = handle.advertise
+        <visualization_msgs::Marker>("inflated_grid", 2);
+    server->setGridPublisher(inflated_grid_pub);
+
     ros::spin();
 
     ROS_WARN("WHAT'S WRONG!?");

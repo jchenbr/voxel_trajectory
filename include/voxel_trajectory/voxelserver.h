@@ -6,7 +6,10 @@
 #include <iostream>
 #include <vector>
 #include <assert.h>
-//#include <ros/console.h>
+
+#include <ros/console.h>
+#include <ros/ros.h>
+#include <visualization_msgs/Marker.h>
 
 #include "voxel_trajectory/voxelmacro.h"
 #include "voxel_trajectory/octomap.h"
@@ -39,7 +42,53 @@ private:
 
         VoxelTrajectory::OctoMap * voxel_map;
         VoxelTrajectory::VoxelGraph * voxel_graph; 
+
 public:
+        MatrixXd inflated_path;
+        ros::Publisher * pt_grid_pub;
+
+        // set up grid visualization publisher.
+        void setGridPublisher(ros::Publisher & pub)
+        {
+            pt_grid_pub = & pub;
+        }
+
+        // publish grid for visualization
+        void publishGrid(double grid[_TOT_BDY], int id = 0)
+        {
+            visualization_msgs::Marker marker;
+
+            marker.header.frame_id  = "/map";
+            marker.header.stamp     = ros::Time::now();
+            
+            marker.ns   = "voxel_inflated_path";
+            marker.type = visualization_msgs::Marker::CUBE;
+            marker.action = visualization_msgs::Marker::ADD;
+
+            marker.pose.orientation.x = 0.0;
+            marker.pose.orientation.y = 0.0;
+            marker.pose.orientation.z = 0.0;
+            marker.pose.orientation.w = 1.0;
+            marker.color.a = 0.2;
+            marker.color.b = 4.0;
+            marker.color.r = 0.0;
+            marker.color.g = 0.0;
+
+            marker.id = id;
+
+            marker.pose.position.x = (grid[_BDY_x] + grid[_BDY_X]) * 0.5;
+            marker.pose.position.y = (grid[_BDY_y] + grid[_BDY_Y]) * 0.5;
+            marker.pose.position.z = (grid[_BDY_z] + grid[_BDY_Z]) * 0.5;
+
+            marker.scale.x = grid[_BDY_X] - grid[_BDY_x];
+            marker.scale.y = grid[_BDY_Y] - grid[_BDY_y];
+            marker.scale.z = grid[_BDY_Z] - grid[_BDY_z];
+
+            clog << "???????????????????????!!!!!!!!!!!!!!!!!!!" << endl;
+
+            pt_grid_pub->publish(marker);
+        }
+
         /* 0. Init our server. */
         VoxelServer()
         {
@@ -102,6 +151,8 @@ public:
             }
         }
 
+        /* set up the map by 3-D points.
+         */
         void setPointCloud(const vector<double> &pt)
         {
             assert(pt.size() % _TOT_DIM == 0);
@@ -223,11 +274,125 @@ public:
                 graph->SetUp(p[0], p[1], voxel_map);
 
                 path = graph->getPathMatrix();
-                clog<<"[ PATH ]: \n"<<path<<endl;
 
-                if (path.rows()<1)
+                clog << "[ PATH ]: \n" << path << endl;
+
+                int m = path.rows() >> 1;
+
+                inflated_path = path.block(1, 0, m, path.cols());
+
+#if 1
+                auto within = [&](double pt[_TOT_DIM], double bdy[_TOT_BDY])
                 {
-                    clog << "[WRONG] ILLEGAL POINTS!"<<endl;
+                    //for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
+                    //for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
+                    for (int dim = 0; dim < _TOT_BDY; ++dim)
+                        if (abs(pt[dim >> 1] - bdy[dim]) < _eps)
+                            return dim;
+                    clog << "!" << endl;
+                };
+
+                for (int iRow = 0; iRow < m; ++iRow)
+                {
+                    int direction[_TOT_BDY] = {-1, 1, -1, 1, -1, 1};
+                    int neighbor[_TOT_BDY] = {0, 0, 0, 0, 0, 0};
+
+                    // original grid
+                    double bdy[_TOT_BDY] = 
+                    {
+                        inflated_path(iRow, _BDY_x), inflated_path(iRow, _BDY_X),
+                        inflated_path(iRow, _BDY_y), inflated_path(iRow, _BDY_Y),
+                        inflated_path(iRow, _BDY_z), inflated_path(iRow, _BDY_Z)
+                    };
+
+
+                    clog << "iRow = " << iRow << endl; 
+                    if (iRow == 0)
+                    {
+                        double pt[_TOT_DIM + _TOT_DIM] =  
+                        {
+                            (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
+                            (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
+                            (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
+                        };
+                        clog << " ? " << endl;
+                        neighbor[within(pt, bdy)] = 1;
+                    }
+                    else if (iRow + 1== m)
+                    {
+                        double pt[_TOT_DIM + _TOT_DIM] = 
+                        {
+                            (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
+                            (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
+                            (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5
+                        };
+                        neighbor[within(pt, bdy)] = 1;
+                    }
+                    else
+                    {
+                        double pt[_TOT_DIM + _TOT_DIM] = 
+                        {
+                            (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
+                            (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
+                            (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5,
+                            (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
+                            (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
+                            (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
+                        };
+                        neighbor[within(pt, bdy)] = 1;
+                        neighbor[within(pt + _TOT_DIM, bdy)] = 1;
+                    }
+
+                   // #1. inflate towards all direction inflation;
+                    voxel_map->inflateBdy(bdy, direction);
+
+                    // #2. inflate towards labours;
+                    
+                    for (int dim = 0; dim < _TOT_BDY; ++dim)
+                    {
+                        neighbor[dim] *= direction[dim];
+                        clog << neighbor[dim] << " ";
+                    }
+                    clog << endl;
+
+                    voxel_map->inflateBdy(bdy, neighbor);
+
+                    for (int dim = 0; dim < _TOT_BDY; ++dim)
+                        if (neighbor[dim] != 0)
+                        {
+                            neighbor[dim] = 0;
+                            voxel_map->inflateBdy(bdy, neighbor, 8);
+                            neighbor[dim] = (dim & 1) ? 1 : -1;
+                        }
+                    
+
+                    // #3. inflate towards one direction each time;
+                    for (int drc = 0; drc < _TOT_BDY; ++drc)
+                    {
+                        if (neighbor[drc] != 0) continue;
+                       // clog << "[!!] drc = " << drc << endl;
+                        memset(direction, 0, sizeof(direction));
+                        direction[drc] = (drc & 1) ? 1 : -1;
+                        voxel_map->inflateBdy(bdy, direction, 8);
+                    }
+
+                    //clog << "----------------------------------------" << endl;
+                    // store in the matrix
+                    inflated_path.row(iRow) << 
+                        bdy[_BDY_x], bdy[_BDY_X],
+                        bdy[_BDY_y], bdy[_BDY_Y],
+                        bdy[_BDY_z], bdy[_BDY_Z];
+
+                    // visualize it.
+                    publishGrid(bdy, iRow);
+                }
+                clog << "[ inflated Path ]: \n" << inflated_path << endl;
+#endif
+                
+
+                if (path.rows() < 1)
+                {
+                    clog << "[WRONG] ILLEGAL POINTS!" << endl;
                     return _TRAJ_NULL;
                 }
 
@@ -260,9 +425,9 @@ public:
                         p[1][_DIM_x] = ( midWin(_BDY_x) + midWin(_BDY_X) ) * 0.5;
                         p[1][_DIM_y] = ( midWin(_BDY_y) + midWin(_BDY_Y) ) * 0.5;
                         p[1][_DIM_z] = ( midWin(_BDY_z) + midWin(_BDY_Z) ) * 0.5;
-                    	clog << "_TRAJ_ROWS = " << path.rows() << "ch = "<< ( (M+1)>>1) <<endl;
+                    	//clog << "_TRAJ_ROWS = " << path.rows() << "ch = "<< ( (M+1)>>1) <<endl;
                     }
-                    clog << "_TRAJ_MID_PT = " << p[1][0] <<" "<< p[1][1] <<" "<< p[1][2] <<" " <<endl;
+                    //clog << "_TRAJ_MID_PT = " << p[1][0] <<" "<< p[1][1] <<" "<< p[1][2] <<" " <<endl;
 
                 }
             } while (T(0) < 0);
