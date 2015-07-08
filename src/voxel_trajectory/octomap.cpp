@@ -11,6 +11,7 @@ const static int _TAG_EMP   = 1;
 const static int _TAG_OBS   = 2;
 const static int _TAG_MIX   = 3;
 const static int _TAG_TAL   = 4;
+
 const static int _NODE_NULL = 0;
 const static int _NODE_ROOT = 1;
 
@@ -30,14 +31,22 @@ namespace VoxelTrajectory
         this->id    = id;
 
         if (bdy == NULL)
+        {
             memset(this->bdy, 0, sizeof(this->bdy));
+        }
         else
+        {
             memcpy(this->bdy, bdy, sizeof(this->bdy));
+        }
 
         if (son == NULL)
+        {
             memset(this->son, 0, sizeof(this->bdy));
+        }
         else
+        {
             memcpy(this->son, son, sizeof(this->son));
+        }
 
         this->tag   = tag;
     }
@@ -72,6 +81,8 @@ namespace VoxelTrajectory
         node[_NODE_NULL].bdy[_BDY_Y] -= eps;
         node[_NODE_NULL].bdy[_BDY_Z] -= eps;
 
+        log.reserve(10000);
+
         // The big picture, set as tree root
         addNode(bdy, NULL, _TAG_EMP);
 
@@ -86,12 +97,20 @@ namespace VoxelTrajectory
             atom[_DIM_y] *= 0.5;
             atom[_DIM_z] *= 0.5;
         }
-        //clog << "atom = " << atom[_DIM_x] << ", " << atom[_DIM_y] << ", " << atom[_DIM_z] << endl;
+
     }
 
-    inline bool OctoMap::isLeaf(const Node & node)
+    inline bool OctoMap::isAtom(const Node & node)
     {
         return (node.bdy[_BDY_X] - node.bdy[_BDY_x] < this->atom[_DIM_x] + eps);
+    }
+
+    OctoMap::~OctoMap()
+    {
+        for (size_t idx = 0; idx < node.size(); ++idx)
+        {
+            if (isAtom(node[idx])) VoxelGraph::delNode(graph_node_ptr[idx]);
+        }
     }
 
     static inline bool within(
@@ -109,9 +128,11 @@ namespace VoxelTrajectory
         return 
             (bdy[_BDY_X] - bdy[_BDY_x]) *
             (bdy[_BDY_Y] - bdy[_BDY_y]) *
+
             (bdy[_BDY_Z] - bdy[_BDY_z]);
     }
 
+#if 0
     void OctoMap::insert(const double pt[_TOT_DIM])
     {
         insert(pt, _NODE_ROOT);
@@ -127,7 +148,7 @@ namespace VoxelTrajectory
         node[rt].tag    |= _TAG_OBS;
 
         //check resolution
-        if (isLeaf(node[rt]))
+        if (isAtom(node[rt]))
         {
             node[rt].tag    = _TAG_OBS;
             return ;
@@ -142,7 +163,7 @@ namespace VoxelTrajectory
         //Update
         update(rt);
     }
-
+#endif
     static inline double max(double a,double b)
     {return (a>b)?a:b;}
 
@@ -192,6 +213,109 @@ namespace VoxelTrajectory
                box[_BDY_z] < bdy[_BDY_z] + eps && bdy[_BDY_Z] < box[_BDY_Z] + eps;
     }
 
+   void OctoMap::insertPoint(const double pt[_TOT_DIM], int rt)
+    {
+        if (rt == _NODE_NULL) return ;
+        if (!within(pt, node[rt].bdy)) return ;
+
+        node[rt].tag |= _TAG_OBS;
+
+        if (isAtom(node[rt]))
+        {
+            node[rt].tag = _TAG_OBS;
+            return ;
+        }
+
+        splitNode(rt);
+        
+        for (size_t chd = 0; chd < _TOT_CHD; ++chd)
+            insertPoint(pt, node[rt].son[chd]);
+
+        update(rt);
+    }
+
+    void OctoMap::insertPoints(const vector<double> & pt)
+    {
+        assert(pt % _TOT_DIM == 0);
+        
+        log.clear();
+
+        // insert
+        for (size_t idx = 0; idx < pt.size(); idx += _TOT_DIM)
+        {
+            double pt[_TOT_DIM] 
+            {
+                pt[idx + _DIM_x], 
+                pt[idx + _DIM_y], 
+                pt[idx + _DIM_z]
+            };
+            insertPoint(pt, _NODE_ROOT);
+        }
+
+        // delete graph node
+        
+        // add graph node
+        dealWithLog();
+    }
+
+    void printBlock(const double bdy[_TOT_BDY])
+    {
+        clog << bdy[0] << ", " << bdy[1] << ", " << bdy[2] << ", ";
+        clog << bdy[3] << ", " << bdy[4] << ", " << bdy[5] << endl;
+    }
+
+    void OctoMap::insertBlock(const double bdy[_TOT_BDY], int rt)
+    {
+        if (rt == _NODE_NULL) return;
+        //clog << "inserting : " ; printBlock(bdy);
+        //clog << " to :" ; printBlock(node[rt].bdy);
+        if (!isIntersected(bdy, node[rt].bdy)) return ;
+
+        if (testEnclose(bdy, node[rt].bdy) || isAtom(node[rt]))
+        {
+            node[rt].tag    = _TAG_OBS;
+            return ;
+        }
+
+        splitNode(rt);
+
+        for (size_t chd = 0; chd < _TOT_CHD; ++chd)
+            insertBlock(bdy, node[rt].son[chd]);
+
+        update(rt);
+    }
+
+    void OctoMap::insertBlocks(const vector<double> & blk)
+    {
+        assert(blk % _TOT_BDY == 0);
+
+        log.clear();
+
+        // insert graph node
+        for (size_t idx = 0; idx < blk.size(); idx += _TOT_BDY)
+        {
+            double bdy[_TOT_BDY]
+            {
+                blk[idx + _BDY_x], blk[idx + _BDY_X],
+                blk[idx + _BDY_y], blk[idx + _BDY_Y],
+                blk[idx + _BDY_z], blk[idx + _BDY_Z]
+            };
+            //clog << "Inserting Block ..." << endl;
+            insertBlock(bdy, _NODE_ROOT);
+        }
+
+        //clog << "going to deal with log." << endl;
+
+        // delete graph node
+        
+        // add graph node
+        
+        dealWithLog();
+
+        //clog << "Dealed log." << endl;
+    }
+
+#if 0
     void OctoMap::insertBlock(const double bdy[_TOT_BDY])
     {
         assert(
@@ -221,7 +345,7 @@ namespace VoxelTrajectory
 
         node[rt].tag |= _TAG_OBS;
 
-        if (testEnclose(bdy, node[rt].bdy) || isLeaf(node[rt]))
+        if (testEnclose(bdy, node[rt].bdy) || isAtom(node[rt]))
         {
             node[rt].tag    = _TAG_OBS;
             return ;
@@ -232,6 +356,7 @@ namespace VoxelTrajectory
 
         update(rt);
     }
+#endif
 
 #if 0
     static bool PointWithinSphere(
@@ -293,7 +418,9 @@ namespace VoxelTrajectory
     // split the node into 8 subnode;
     void OctoMap::splitNode(int rt)
     {
-        if (node[rt].son[0] || isLeaf(node[rt])) return;
+        if (node[rt].son[0] || isAtom(node[rt])) return;
+
+        log.push_back( -rt );
 
         double * bdy = node[rt].bdy;
 
@@ -313,15 +440,108 @@ namespace VoxelTrajectory
 
         for (int chd = 0; chd < _TOT_CHD; ++chd)
         {
-            double new_bdy[_TOT_BDY]=
+            double new_bdy[_TOT_BDY] =
             {   
                 BDY[_BDY_x][(chd >> _DIM_x) & 1], BDY[_BDY_X][(chd >> _DIM_x) & 1],
                 BDY[_BDY_y][(chd >> _DIM_y) & 1], BDY[_BDY_Y][(chd >> _DIM_y) & 1],
                 BDY[_BDY_z][(chd >> _DIM_z) & 1], BDY[_BDY_Z][(chd >> _DIM_z) & 1],
             };
             node[rt].son[chd] = (int)node.size();
+            log.push_back((int) node.size());
+            
             addNode(new_bdy, NULL, node[rt].tag);
         }
+    }
+
+    void OctoMap::connectTo(int rt, int src, const double bdy[_TOT_BDY])
+    {
+        /*
+        if (src == 10)
+        {
+            clog << "src bdy : "; printBlock(bdy);
+            clog << "to  bdy : "; printBlock(node[rt].bdy);
+            clog << " tag = " << node[rt].tag << endl;
+        }
+        */
+
+        if (!isIntersected(node[rt].bdy, bdy)) return ;
+
+        if (node[rt].tag == _TAG_MIX)
+        {
+            for (size_t chd = 0; chd < _TOT_CHD; ++chd)
+            {
+                //if (src == 10) clog << "rt = " << rt << ", chd = " << chd << endl;
+                connectTo(node[rt].son[chd], src, bdy);
+            }
+        }
+        else if (node[rt].tag == _TAG_EMP)
+        {
+            double bdy_i[_TOT_BDY];
+            retSharedArea(node[rt].bdy, bdy, bdy_i);
+            //if (src == 10){clog << "src = " << src << ", to = " << rt << endl;}
+            VoxelGraph::addEdge(graph_node_ptr[rt], graph_node_ptr[src], bdy_i);
+        }
+    }
+
+    void OctoMap::dealWithLog()
+    {
+        int old_id = (int) graph_node_ptr.size();
+        graph_node_ptr.resize(node.size());
+
+        /*
+        clog << "id list : \n";
+        for (auto id : log) clog << id << ", ";
+        clog << endl;
+        */
+
+        for (auto id : log)
+        {
+            if (id < -1 && (-id) < old_id)
+            { 
+                VoxelGraph::delNode(graph_node_ptr[-id]);
+                graph_node_ptr[-id] = NULL;
+            }
+
+            if (id > 1 && node[id].tag == _TAG_EMP) 
+            {
+                graph_node_ptr[id] = VoxelGraph::addNode(id, node[id].bdy);
+            }
+        }
+
+        for (auto id : log)
+        {
+            if (id > 1 && node[id].tag == _TAG_EMP) 
+            {
+                double bdy[_TOT_BDY];
+                for (int dim = 0; dim < _TOT_BDY; dim += 2)
+                {
+                    memcpy(bdy, node[id].bdy, sizeof(double) * _TOT_BDY);
+
+                    //if (id == 10) {clog << "\nsource : "; printBlock(node[id].bdy);}
+
+                    //bdy[dim] = node[id].bdy[dim] - atom[dim >> 1] * 0.5 - eps;
+                    //bdy[dim | 1] = node[id].bdy[dim] - atom[dim >> 1] * 0.5 + eps; 
+                    bdy[dim] = bdy[dim | 1] = node[id].bdy[dim];
+                    bdy[dim] -= eps;
+                    connectTo(_NODE_ROOT, id, bdy);
+
+                    //bdy[dim] = node[id].bdy[dim | 1] + atom[dim >> 1] * 0.5 - eps;
+                    //bdy[dim | 1] = node[id].bdy[dim | 1] + atom[dim >> 1] * 0.5 + eps;
+                    bdy[dim] = bdy[dim | 1] = node[id].bdy[dim | 1];
+                    bdy[dim] += eps;
+                    connectTo(_NODE_ROOT, id, bdy);
+                }
+
+                /*
+                if (id == 10)
+                {
+                    clog << "id = " << 10 << ", neighbor to " << graph_node_ptr[id]->nxt.size() << endl;
+                }
+                */
+            }
+        }
+
+        log.clear();
     }
 
     // update the tag of the node #rt;
@@ -343,6 +563,7 @@ namespace VoxelTrajectory
     }
 
 
+#if 0
     void OctoMap::query(int rt,int from, const double bdy[_TOT_BDY],
         VoxelGraph * graph)
     {
@@ -380,6 +601,76 @@ namespace VoxelTrajectory
 #endif
             graph->add_bdy_id_id(bdy_i, rt, from);
         }
+    }
+#endif
+
+    int OctoMap::queryPoint(int rt, const double pt[_TOT_DIM])
+    {
+        if (node[rt].son[0] == _NODE_NULL) return rt;
+#if 1
+        clog << "Pt  : "; clog << pt[0] << ", " << pt[1] << ", " << pt[2] << endl;
+        clog << "Box : "; printBlock(node[rt].bdy);
+        clog << "son : "; for (auto chd : node[rt].son) clog << chd << ", "; clog << endl;
+        clog << "node size : " << node.size() << ", " << graph_node_ptr.size() << endl;
+        clog << endl;
+#endif
+
+        for (size_t chd = 0; chd < _TOT_CHD; ++chd) 
+        {
+            if (within(pt, node[node[rt].son[chd]].bdy)) 
+                return queryPoint(node[rt].son[chd], pt);
+        }
+    }
+
+    bool OctoMap::testObstacle(const double pt[_TOT_DIM])
+    {
+        return node[queryPoint(_NODE_ROOT, pt)].tag != _TAG_EMP;
+    }
+
+
+    pair<Eigen::MatrixXd, Eigen::MatrixXd>
+        OctoMap::getPath(const double src[_TOT_DIM], const double dest[_TOT_DIM])
+    {
+        assert(within(src, node[_NODE_ROOT].bdy) && within(dest, node[_NODE_ROOT].bdy));
+
+        clog << "src = " << src[0] << ", " << src[1] << ", " << src[2] << endl;
+        clog << "dest = " << dest[0] << ", " << dest[1] << ", " << dest[2] << endl;
+
+        auto src_id = queryPoint(_NODE_ROOT, src);
+        auto dest_id = queryPoint(_NODE_ROOT, dest);
+
+        clog << "id " << src_id << ", " << dest_id << endl;
+
+        auto p_src_node = graph_node_ptr[queryPoint(_NODE_ROOT, src)];
+        auto p_dest_node = graph_node_ptr[queryPoint(_NODE_ROOT, dest)];
+
+        clog << "address : " << p_src_node << ", " << p_dest_node << endl;
+
+        clog << "src : " << p_src_node->id << ", dest : " << p_dest_node->id << endl;
+
+        double bdy[_TOT_BDY];
+
+        for (int dim = 0; dim < _TOT_BDY; ++dim) bdy[dim] = src[dim >> 1]; 
+        auto p_src_edge = new VoxelGraph::Edge(NULL, p_src_node, bdy);
+        p_src_node->nxt[-1] = p_src_edge;
+        clog << "src pos : "; printBlock(bdy);
+
+        for (int dim = 0; dim < _TOT_BDY; ++dim) bdy[dim] = dest[dim >> 1];
+        auto p_dest_edge = new VoxelGraph::Edge(p_dest_node, NULL, bdy);
+        p_dest_node->nxt[-2] = p_dest_edge;
+        clog << "dest pos : "; printBlock(bdy);
+
+    
+        auto ret = VoxelGraph::getPathAStar(p_src_edge, p_dest_edge);
+        clog << "edge :\n" << ret.first << endl << "node:\n" << ret.second << endl;
+
+        p_src_node->nxt.erase(-1);
+        delete p_src_edge;
+
+        p_dest_node->nxt.erase(-2);
+        delete p_dest_edge;
+
+        return ret;
     }
 
     void OctoMap::saveAsFile(std::string filename)
@@ -430,6 +721,7 @@ namespace VoxelTrajectory
         memcpy(bdy, node[id].bdy, sizeof(node[id].bdy));
     }
 
+#if 0
     void OctoMap::retGraph(VoxelGraph * graph)
     {
         for (auto it = node.begin(); it!=node.end(); ++it)
@@ -448,6 +740,7 @@ namespace VoxelTrajectory
             }
         }
     }
+#endif
 
     std::vector<double> OctoMap::getPointCloud()
     {
@@ -485,7 +778,7 @@ namespace VoxelTrajectory
 
         splitNode(rt);
 
-        if (testEnclose(bdy, node[rt].bdy) || isLeaf(node[rt]))
+        if (testEnclose(bdy, node[rt].bdy) || isAtom(node[rt]))
             return node[rt].tag == _TAG_EMP;
 
         bool ret = true;

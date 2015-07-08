@@ -14,10 +14,12 @@ private:
 public:
         std::pair<Eigen::MatrixXd,Eigen::VectorXd> genPolyCoeffTime(
             const Eigen::MatrixXd &PBE,
-            const Eigen::MatrixXd &vel = Eigen::MatrixXd::Zero(_TOT_DIM, 2),
-            const Eigen::MatrixXd &acc = Eigen::MatrixXd::Zero(_TOT_DIM, 2),
-            const double maxVel = 1.0,
-            const double maxAcc = 1.0);
+            const Eigen::MatrixXd &inflated_path,
+            const Eigen::MatrixXd &vel,
+            const Eigen::MatrixXd &acc,
+            const double maxVel,
+            const double maxAcc,
+            double & coeff_t);
    };
 }
 

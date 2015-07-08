@@ -123,7 +123,7 @@ include_directories(
 # )
 
 add_library(octomap_		src/voxel_trajectory/octomap.cpp)
-add_library(voxelgraph_		src/voxel_trajectory/voxelgraph.cpp)
+add_library(voxelgraph_		src/voxel_trajectory/voxel_graph.cpp)
 add_library(trajectorygenerator_	src/voxel_trajectory/trajectorygenerator.cpp)
 
 ## Declare a cpp executable
@@ -183,6 +183,7 @@ add_executable(voxel_set_obstacle_node src/voxel_set_obstacle_node.cpp)
 #	gfortran
 #)
 
+target_link_libraries(octomap_ voxelgraph_)
 
 target_link_libraries( voxel_trajectory_generator_node
 	${catkin_LIBRARIES}
@@ -190,7 +191,6 @@ target_link_libraries( voxel_trajectory_generator_node
 	${PCL_IO_LIBRARIES}
        
 	octomap_
-	voxelgraph_
 	trajectorygenerator_
 
 	ooqpgensparse
@@ -202,10 +202,12 @@ target_link_libraries( voxel_trajectory_generator_node
 	gfortran
 )
 
+
 target_link_libraries( mission_commander_node
 	${catkin_LIBRARIES}
 	${PCL_COMMON_LIBRRIES}
 	${PCL_IO_LIBRARIES}
+
 	octomap_
 	voxelgraph_
 	trajectorygenerator_

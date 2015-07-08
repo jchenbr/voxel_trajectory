@@ -13,7 +13,6 @@
 
 #include "voxel_trajectory/voxelmacro.h"
 #include "voxel_trajectory/octomap.h"
-#include "voxel_trajectory/voxelgraph.h"
 #include "voxel_trajectory/trajectorygenerator.h"
 
 const double _DB_INF = 1e100;
@@ -26,11 +25,10 @@ namespace VoxelTrajectory
     class VoxelServer
     {
 private:
-        bool hasMap;
         bool hasTraj;
         int  nTraj, nPoly;
 
-        MatrixXd P, path;
+        MatrixXd P, path, inflated_path;
         VectorXd T;
 
         double max_acc;
@@ -39,21 +37,20 @@ private:
         double margin;
         double init_time, final_time;
         double bdy[_TOT_BDY];
+        double coeff_t;
 
         VoxelTrajectory::OctoMap * voxel_map;
-        VoxelTrajectory::VoxelGraph * voxel_graph; 
-
-public:
-        MatrixXd inflated_path;
         ros::Publisher * pt_grid_pub;
+public:
 
+        // # -1. func for visualization
         // set up grid visualization publisher.
         void setGridPublisher(ros::Publisher & pub)
         {
             pt_grid_pub = & pub;
         }
 
-        // publish grid for visualization
+        // publish grid for visualization, brutal way
         void publishGrid(double grid[_TOT_BDY], int id = 0)
         {
             visualization_msgs::Marker marker;
@@ -84,7 +81,6 @@ public:
             marker.scale.y = grid[_BDY_Y] - grid[_BDY_y];
             marker.scale.z = grid[_BDY_Z] - grid[_BDY_z];
 
-            clog << "???????????????????????!!!!!!!!!!!!!!!!!!!" << endl;
 
             pt_grid_pub->publish(marker);
         }
@@ -92,7 +88,6 @@ public:
         /* 0. Init our server. */
         VoxelServer()
         {
-            hasMap  = false;
             hasTraj = false;
 
             nTraj   = 0;
@@ -103,18 +98,13 @@ public:
             resolution  = 0.2;
             margin  = 0.02;
             voxel_map = NULL; 
-            voxel_graph = NULL;
             bdy[0] = bdy[2] = bdy[4] = +_DB_INF;
             bdy[1] = bdy[3] = bdy[5] = -_DB_INF;
         }
 
         ~VoxelServer()
         {
-            if (hasMap) 
-            {
-                delete voxel_map;
-                delete voxel_graph;
-            }
+            delete voxel_map;
         }
 
         /*  1.  Receive point cloud 
@@ -123,32 +113,12 @@ public:
         void addMapBlock(const vector<double> &blk)
         {
             assert(blk.size() % _TOT_BDY == 0);
+            if (voxel_map == NULL) voxel_map = new VoxelTrajectory::OctoMap(bdy, resolution); 
 
-            size_t n_blk = blk.size() / _TOT_BDY;
+            vector<double> to_add(blk);
+            for (size_t idx = 0; idx < to_add.size(); idx += 2) to_add[idx] += _eps;
 
-            if (!hasMap)
-            {
-                voxel_map   = new VoxelTrajectory::OctoMap(bdy, resolution);
-            }
-
-            for (int i = 0; i < n_blk; i++)
-            {
-                double to_add[_TOT_BDY] = 
-                {   blk[i * _TOT_BDY + _BDY_x], blk[i * _TOT_BDY + _BDY_X] + _eps,
-                    blk[i * _TOT_BDY + _BDY_y], blk[i * _TOT_BDY + _BDY_Y] + _eps,
-                    blk[i * _TOT_BDY + _BDY_z], blk[i * _TOT_BDY + _BDY_Z] + _eps};
-                voxel_map->insertBlock(to_add);
-            }
-
-            if (!hasMap)
-            {
-                hasMap  = true;
-                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
-            }else
-            {
-                delete voxel_graph;
-                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
-            }
+            voxel_map->insertBlocks(to_add);
         }
 
         /* set up the map by 3-D points.
@@ -156,82 +126,18 @@ public:
         void setPointCloud(const vector<double> &pt)
         {
             assert(pt.size() % _TOT_DIM == 0);
+            if (voxel_map == NULL) voxel_map = new VoxelTrajectory::OctoMap(bdy, resolution);
 
-            size_t n_pt = pt.size() / _TOT_DIM;
+            vector<double> to_add(pt);
+            for (size_t idx = 0; idx < to_add.size(); idx += 2) to_add[idx] += _eps;
 
-            if (!hasMap)
-            {   
-#if  1
-                voxel_map = new VoxelTrajectory::OctoMap(bdy, resolution);
-#else
-                double l = min(bdy[_BDY_x], min(bdy[_BDY_y], bdy[_BDY_z]));
-                double r = max(bdy[_BDY_X], max(bdy[_BDY_Y], bdy[_BDY_Z]]);
-                for (int i = 0; i < pt.size(); i++)
-                {
-                    l   = min(l, pt[i] - margin);
-                    r   = max(r, pt[i] + margin); 
-                }
-
-                double tmp[_TOT_BDY] = {l, r, l, r, l, r};
-
-                voxel_map   = new VoxelTrajectory::OctoMap(tmp, resolution);
-
-                double x_lower_wall[_TOT_BDY], x_upper_wall[_TOT_BDY]; 
-                double y_lower_wall[_TOT_BDY], y_upper_wall[_TOT_BDY]; 
-                double z_lower_wall[_TOT_BDY], z_upper_wall[_TOT_BDY]; 
-
-                memcpy(x_lower_wall, bdy, _TOT_BDY * size(double));
-                memcpy(x_upper_wall, bdy, _TOT_BDY * size(double));
-                memcpy(y_lower_wall, bdy, _TOT_BDY * size(double));
-                memcpy(y_upper_wall, bdy, _TOT_BDY * size(double));
-                memcpy(z_lower_wall, bdy, _TOT_BDY * size(double));
-                memcpy(z_upper_wall, bdy, _TOT_BDY * size(double));
-
-                x_lower_wall[_BDY_X] = bdy[_BDY_x];
-                x_upper_wall[_BDY_x] = bdy[_BDY_X];
-                y_lower_wall[_BDY_Y] = bdy[_BDY_y];
-                y_upper_wall[_BDY_y] = bdy[_BDY_Y];
-                z_lower_wall[_BDY_Z] = bdy[_BDY_z];
-                z_upper_wall[_BDY_z] = bdy[_BDY_Y];
-
-                voxel_map -> insertBlock(x_lower_wall);
-                voxel_map -> insertBlock(x_upper_wall);
-                voxel_map -> insertBlock(y_lower_wall);
-                voxel_map -> insertBlock(y_upper_wall);
-                voxel_map -> insertBlock(z_lower_wall);
-                voxel_map -> insertBlock(z_upper_wall);
-#endif
-            }
-
-
-            for (int i = 0; i < n_pt; i++)
-            {
-                double p [_TOT_DIM] =
-                {   pt[i * _TOT_DIM + _DIM_x],
-                    pt[i * _TOT_DIM + _DIM_y],
-                    pt[i * _TOT_DIM + _DIM_z]};
-
-                voxel_map->insert(p);
-            }
-
-            if (!hasMap)
-            {
-                hasMap  = true;
-                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
-            }else
-            {
-                delete voxel_graph;
-                voxel_graph = new VoxelTrajectory::VoxelGraph(voxel_map);
-            }
+            voxel_map->insertPoints(to_add);
         }
 
         //> Get simplified point cloud
         vector<double> getPointCloud()
         {
-            if (hasMap)
-                return voxel_map->getPointCloud();
-            else
-                return vector<double>();
+            return voxel_map->getPointCloud();
         }
 
         //> Add more points.
@@ -246,50 +152,37 @@ public:
         const static int _TRAJ_NULL = 0;
         const static int _TRAJ_HALF = 1;
         const static int _TRAJ_SUCC = 2;
+        const double _CHECK_DELTA_T = 0.1;
 
-        int setPoints(
-            const vector<double> & p_s,
-            const vector<double> & p_t,
-            double init_T)
+        bool checkHalfWayObstacle_BrutalForce()
         {
-            assert(p_s.size()==_TOT_DIM*3 && p_t.size() == _TOT_DIM*3);
-            int ret = _TRAJ_SUCC;
-
-            if (!hasMap) {
-                clog << "WRONG! CAN'T SET UP! NO MAP NOW!"<<endl;
-                return _TRAJ_NULL;
+            vector<double> state;
+            for (double t = init_time; t < final_time; t += _CHECK_DELTA_T)
+            {
+                getDesiredState(t);
+                if (voxel_map->testObstacle(state.data())) 
+                {
+                    return true;
+                }
             }
+            return false;
+        }
 
-            double p[2][3]= {
-                p_s[0], p_s[1], p_s[2],
-                p_t[0], p_t[1], p_t[2]};
-
-            
-            VoxelTrajectory::TrajectoryGenerator traj_gen;
-            MatrixXd Vel (_TOT_DIM, 2);
-            MatrixXd Acc (_TOT_DIM, 2); 
-
-            do{
-                VoxelTrajectory::VoxelGraph * graph = voxel_graph;
-                graph->SetUp(p[0], p[1], voxel_map);
-
-                path = graph->getPathMatrix();
-
-                clog << "[ PATH ]: \n" << path << endl;
-
+        MatrixXd getInflatedPath(const MatrixXd & path)
+        {
                 int m = path.rows() >> 1;
-
-                inflated_path = path.block(1, 0, m, path.cols());
-
+                MatrixXd inflated_path = path.block(1, 0, m, path.cols());
 #if 1
                 auto within = [&](double pt[_TOT_DIM], double bdy[_TOT_BDY])
                 {
                     //for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
                     //for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
                     for (int dim = 0; dim < _TOT_BDY; ++dim)
-                        if (abs(pt[dim >> 1] - bdy[dim]) < _eps)
-                            return dim;
-                    clog << "!" << endl;
+                    {
+                        if (abs(pt[dim >> 1] - bdy[dim]) < _eps) return dim;
+                    }
+                    assert(false);
+                    //clog << "!" << endl;
                 };
 
                 for (int iRow = 0; iRow < m; ++iRow)
@@ -306,7 +199,7 @@ public:
                     };
 
 
-                    clog << "iRow = " << iRow << endl; 
+                    //clog << "iRow = " << iRow << endl; 
                     if (iRow == 0)
                     {
                         double pt[_TOT_DIM + _TOT_DIM] =  
@@ -315,7 +208,7 @@ public:
                             (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
                             (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
                         };
-                        clog << " ? " << endl;
+                        //clog << " ? " << endl;
                         neighbor[within(pt, bdy)] = 1;
                     }
                     else if (iRow + 1== m)
@@ -351,9 +244,9 @@ public:
                     for (int dim = 0; dim < _TOT_BDY; ++dim)
                     {
                         neighbor[dim] *= direction[dim];
-                        clog << neighbor[dim] << " ";
+                        //clog << neighbor[dim] << " ";
                     }
-                    clog << endl;
+                    //clog << endl;
 
                     voxel_map->inflateBdy(bdy, neighbor);
 
@@ -388,23 +281,162 @@ public:
                 }
                 clog << "[ inflated Path ]: \n" << inflated_path << endl;
 #endif
-                
+                return inflated_path;
+        }
 
-                if (path.rows() < 1)
+        int setWayPoints(
+                const vector<double> & p_s,
+                const vector<double> wp,
+                double init_T)
+        {
+            assert(p_s.size() == _TOT_DIM * 3);
+            assert(wp.size() % _TOT_DIM == 0);
+            
+            int ret = _TRAJ_SUCC, n = wp.size() / _TOT_DIM, m = 0;
+            
+            vector<MatrixXd> vec_edge; 
+            vector<MatrixXd> vec_node;
+
+            double p[2][_TOT_DIM] = {p_s[0], p_s[1], p_s[2], wp[0], wp[1], wp[2]};
+
+            for (int idx = 0; idx < n; ++idx)
+            {
+                p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
+                p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
+                p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
+                auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
+                vec_edge.push_back(edge_node.first);
+                vec_node.push_back(edge_node.second);
+                m += edge_node.second.cols();
+            }
+            clog << " the array of node and edge : " << vec_node.size()
+                << ", " << vec_edge.size() << endl;
+
+            MatrixXd edge(m + 1, _TOT_BDY), node(m, _TOT_BDY);
+
+            m = 0;
+            for (int idx = 0; idx < n; ++idx)
+            {
+                int c = vec_node[idx].cols();
+                edge.block(m, 0, c + 1, _TOT_BDY) << vec_edge[idx].transpose();
+                node.block(m, 0, c, _TOT_BDY) << vec_node[idx].transpose();
+                m += c;
+            }
+            path.resize(m << 1, _TOT_BDY);
+            // set up the start and the final position
+            path.row(0) << p_s[_DIM_x], p_s[_DIM_y], p_s[_DIM_z], 
+                wp[(n - 1) * _TOT_DIM + _DIM_x], 
+                wp[(n - 1) * _TOT_DIM + _DIM_y], 
+                wp[(n - 1) * _TOT_DIM + _DIM_z]; 
+            // set up the box
+            path.block(1, 0, m, _TOT_BDY) << node;
+            // set up the window
+            path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
+            clog << "[ PATH ]: \n" << path << endl;
+
+            inflated_path = getInflatedPath(path);
+
+            MatrixXd Vel(_TOT_DIM, 2);
+            MatrixXd Acc(_TOT_DIM, 2);
+
+            Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
+            Vel.col(1) << 0.0, 0.0, 0.0;
+
+            Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
+            Acc.col(1) << 0.0, 0.0, 0.0;
+
+            // generate the trajectory
+            VoxelTrajectory::TrajectoryGenerator traj_gen;
+            pair<MatrixXd, VectorXd> traj = 
+               traj_gen.genPolyCoeffTime(path, inflated_path, 
+                       Vel, Acc, max_vel, max_acc, coeff_t);
+
+
+            // inflation rate
+            coeff_t = 1.0 / coeff_t;
+
+            clog << "coeff t = " << coeff_t << endl;
+
+            P   = traj.first;
+            T   = traj.second;
+
+            if (T(0) < 0) 
+            {
+                clog << "[WARN] No Suitable Trajectory !";
+                return _TRAJ_NULL;
+            }
+
+            hasTraj = true;
+            
+            nTraj   = T.rows();
+
+            init_time = init_T;
+            final_time = init_T + T.sum();
+
+            return ret;
+        }
+
+        int setPoints(
+            const vector<double> & p_s,
+            const vector<double> & p_t,
+            double init_T)
+        {
+            assert(p_s.size() == _TOT_DIM * 3);
+            assert(p_t.size() == _TOT_DIM * 3);
+            int ret = _TRAJ_SUCC;
+
+            double p[2][3] = {p_s[0], p_s[1], p_s[2], p_t[0], p_t[1], p_t[2]};
+
+            
+            VoxelTrajectory::TrajectoryGenerator traj_gen;
+            MatrixXd Vel (_TOT_DIM, 2);
+            MatrixXd Acc (_TOT_DIM, 2); 
+
+            do{
+                // Here's some ugly construction due to the elder version.
+                auto edge_node = voxel_map->getPath(p[0], p[1]);
+                auto & edge = edge_node.first;
+                auto & node = edge_node.second;
+                
+                int m = node.cols();
+
+                if (m < 1)
                 {
                     clog << "[WRONG] ILLEGAL POINTS!" << endl;
                     return _TRAJ_NULL;
                 }
 
-                for (int i=0; i<_TOT_DIM; i++) Vel(i,0) = p_s[1 * 3 + i];
-                for (int i=0; i<_TOT_DIM; i++) Vel(i,1) = p_t[1 * 3 + i];
 
-                for (int i=0; i<_TOT_DIM; i++) Acc(i,0) = p_s[2 * 3 + i];
-                for (int i=0; i<_TOT_DIM; i++) Acc(i,1) = p_t[2 * 3 + i];
+                path.resize(m << 1, _TOT_BDY);
+                // set up the start and the final position
+                path.row(0) << p_s[0], p_s[1], p_s[2], p_t[0], p_t[1], p_t[2];
+                // set up the box
+                path.block(1, 0, m, _TOT_BDY) << node.transpose();
+                // set up the window
+                path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.transpose().block(1, 0, m - 1, _TOT_BDY);
+
+                clog << "[ PATH ]: \n" << path << endl;
+
+                // the matrix for inflation
+                inflated_path = getInflatedPath(path);
+                
+
+                Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
+                Vel.col(1) << p_t[3 + 0], p_t[3 + 1], p_t[3 + 2];
+
+                Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
+                Acc.col(1) << p_t[6 + 0], p_t[6 + 1], p_t[6 + 2];
+
+                // generate the trajectory
+                pair<MatrixXd, VectorXd> traj = 
+                   traj_gen.genPolyCoeffTime(path, inflated_path, 
+                           Vel, Acc, max_vel, max_acc, coeff_t);
 
 
-                pair<MatrixXd, VectorXd> traj   = 
-                   traj_gen.genPolyCoeffTime(path, Vel, Acc, max_vel, max_acc);
+                // inflation rate
+                coeff_t = 1.0 / coeff_t;
+
+                clog << "coeff t = " << coeff_t << endl;
 
                 P   = traj.first;
                 T   = traj.second;
@@ -412,23 +444,7 @@ public:
                 if (T(0) < 0) 
                 {
                     clog << "[WARN] No Suitable Trajectory !";
-                    ret = _TRAJ_HALF;
-                    
-                    if (path.rows() <= 2)
-                    {
-                        return _TRAJ_NULL;
-                    }else
-                    {
-                        int M = path.rows() >> 1;
-                        RowVectorXd midWin=
-                            path.row( (M+1)>>1 );
-                        p[1][_DIM_x] = ( midWin(_BDY_x) + midWin(_BDY_X) ) * 0.5;
-                        p[1][_DIM_y] = ( midWin(_BDY_y) + midWin(_BDY_Y) ) * 0.5;
-                        p[1][_DIM_z] = ( midWin(_BDY_z) + midWin(_BDY_Z) ) * 0.5;
-                    	//clog << "_TRAJ_ROWS = " << path.rows() << "ch = "<< ( (M+1)>>1) <<endl;
-                    }
-                    //clog << "_TRAJ_MID_PT = " << p[1][0] <<" "<< p[1][1] <<" "<< p[1][2] <<" " <<endl;
-
+                    return _TRAJ_NULL;
                 }
             } while (T(0) < 0);
 
@@ -453,11 +469,11 @@ public:
         {
             //clog<<"[t_now] = "<< t_now << ", [init_time] = " << init_time << ", "<< t_now - init_time<<endl;
             //clog<<"[ T ]" << T.transpose() << endl;
-            t_now   -= init_time;
-            vector<double > ret(3*3, 0);
-            int iSeg=0;
+            t_now -= init_time;
+            vector<double > ret(3 * 3, 0);
+            int iSeg = 0;
 
-            while (iSeg+1<nTraj && t_now>T[iSeg])
+            while (iSeg + 1 < nTraj && t_now > T[iSeg])
             {
                 t_now -= T[iSeg];
                 iSeg += 1;
@@ -466,25 +482,25 @@ public:
             t_now = max(0.0, t_now);
             t_now = min(t_now, T[iSeg]);
 
-                    for (int dim = 0; dim<_TOT_DIM; dim++)
+                    for (int dim = 0; dim < _TOT_DIM; ++dim)
                     {
                         VectorXd coeff = P.col(dim).segment(iSeg * nPoly, nPoly);
                         //clog<<"[seg] = " << iSeg << ", [dim] = " << dim << ", " << coeff.transpose() <<endl; 
                         
                         VectorXd t;
 
-                        for (int i = 0; i < _TOT_DIM; i++)
+                        double scale_ratio = 1.0;
+                        for (int i = 0; i < _TOT_DIM; ++i)
                         {
-                            t   = VectorXd::Zero(nPoly);
-                            t(i)    = 1.0;
+                            t = VectorXd::Zero(nPoly);
+                            t(i) = 1.0;
                             
-                            for (int j = i+1; j<nPoly; j++) 
-                                t(j) = t(j-1)*t_now;
+                            for (int j = i + 1; j < nPoly; ++j) t(j) = t(j-1) * t_now;
                                 
-                            ret[dim + i*3] = coeff.dot(t);
+                            ret[dim + i * 3] = scale_ratio * coeff.dot(t);
+                            scale_ratio *= coeff_t;
 
-                            for (int j = 0; j<nPoly; j++)
-                                coeff(j) *= (j-i);
+                            for (int j = 0; j < nPoly; ++j) coeff(j) *= (j-i);
                         }
                     }
             return ret;
@@ -512,6 +528,9 @@ public:
         void setMapBoundary(double bdy[_TOT_BDY])
         {memcpy(this->bdy, bdy, sizeof(double) * _TOT_BDY);}
 
+        const double * getBdy()
+        {return bdy;}
+
         double getBeginTime()
         {return init_time;}
 
@@ -526,6 +545,12 @@ public:
 
         MatrixXd getVoxelPath()
         {return path;}
+
+        const MatrixXd & getPathConstRef()
+        {return path;}
+        
+        const MatrixXd & getInflatedPathConstRef()
+        {return inflated_path;}
 
         vector<double> getCheckPoint()
         {

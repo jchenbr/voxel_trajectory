@@ -72,7 +72,7 @@ double safeMargin;
 double maxAcc;
 double maxVel;
 double mapVoxelResolution;
-deque<double> ptBuff;
+vector<double> ptBuff;
 
 void VisualizeMap()
 {
@@ -214,7 +214,6 @@ void trySetTraj()
 {
     if (ptBuff.empty()) return;
     vector<double> begState(_TOT_DIM * 3);
-    vector<double> endState(_TOT_DIM * 3, 0.0);
 
     begState[0 * _TOT_DIM + _DIM_x] = estPos[_DIM_x];
     begState[0 * _TOT_DIM + _DIM_y] = estPos[_DIM_y];
@@ -241,27 +240,28 @@ void trySetTraj()
         begState[2 * _TOT_DIM + _DIM_z] = state[2 * _TOT_DIM + _DIM_z];
     }
 
-    endState[0 * _TOT_DIM + _DIM_x] = ptBuff[0]; 
-    endState[0 * _TOT_DIM + _DIM_y] = ptBuff[1];
-    endState[0 * _TOT_DIM + _DIM_z] = ptBuff[2];
+    vector<double> wp;
+    wp.reserve(ptBuff.size());
+    for (auto & pt : ptBuff) wp.push_back(pt);
+    ptBuff.clear();
 
     isTraj  = false;
     ros::Time begin = ros::Time::now();
-    int server_ret = server->setPoints(begState, endState, odomTime.toSec());
+
+    int server_ret = server->setWayPoints(begState, wp, odomTime.toSec());
+
     ROS_WARN("[The time of trajectory generation : %.9lf]", (ros::Time::now() - begin).toSec());
     
     ROS_WARN("The traj status is %d.", server_ret);
-    if (server_ret == 0) return ; 
     //erase the current dest
-    if (server_ret == 2)
-    {
-        ptBuff.pop_front();
-        ptBuff.pop_front();
-        ptBuff.pop_front();
-    }
-
-    isTraj  = true;
-    VisualizeTraj();
+   
+   if (server_ret == 2) 
+   {    
+       isTraj  = true;
+       VisualizeTraj();
+   }
+   else 
+       isTraj = false;
 }
 
 void pubMavlinkCMD()
@@ -635,6 +635,7 @@ void WaypointCallback(
     const nav_msgs::Path::ConstPtr & waypoints)
 {
     isInit  = false;
+   
     ptBuff.clear();
     if (!isMap) return ;
     
