@@ -188,7 +188,7 @@ void deployRandomForest(ros::NodeHandle & handle)
 
     ros::Publisher pub = 
         handle.advertise<sensor_msgs::PointCloud2>(
-            "/trajectory_generator/obstacle_block_cloud", 2);
+            "/trajectory_generator/obstacle_blocks", 2);
 
     ros::Rate wait_rate(1);
     while (ros::ok() && pub.getNumSubscribers() == 0) 
@@ -196,6 +196,7 @@ void deployRandomForest(ros::NodeHandle & handle)
 
     pub.publish(blkCloud);
     delete[] blk;
+    ROS_WARN("[MISSION] DONE");
 }
 
 void randomForesetMode(ros::NodeHandle & handle)

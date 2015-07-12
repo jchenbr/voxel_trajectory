@@ -16,8 +16,8 @@
 #include <eigen3/Eigen/Eigenvalues>
 #include <eigen3/Eigen/Sparse>
 
-#define _USE_SPARSE_
-#define _USE_OLD_VERSION_
+#define _TRAJ_USE_SPACE__
+//#define _TRAJ_USE_INFLATION_
 
 #include <ooqp/QpGenData.h>
 #include <ooqp/QpGenVars.h>
@@ -998,7 +998,7 @@ namespace VoxelTrajectory
         return CI;
     }
 
-#ifdef _USE_SPARSE_
+#ifdef _TRAJ_USE_SPACE__
 
 static int _error_code = 0;
 
@@ -1260,7 +1260,7 @@ static int _error_code = 0;
             getConstrainsEndpoints(T, B_ori, E, p_s, p_t, vel, acc);
         //clog << "2. Endpoints." << endl;
         // Corridors
-#ifdef _USE_OLD_VERSION_
+#ifdef _TRAJ_USE_INFLATION_
         pair<pair<SMatrixXd, VectorXd>, pair<SMatrixXd, VectorXd> > CE_CI_1 = 
             getConstrainsCorridors(T , B, E);
 #else
@@ -1328,7 +1328,7 @@ static int _error_code = 0;
             clog<< "CI:"<<endl; printPr(CI);
 #endif
 
-#ifdef _USE_SPARSE_
+#ifdef _TRAJ_USE_SPACE__
             D   = getPolyDer(Q, CE, CI);
 #endif
 
@@ -1431,7 +1431,7 @@ static int _error_code = 0;
         //clog<<"T:" <<T<<endl;
         // generate the coeff for polynomial traj
         //swap(B, B_);
-#ifdef _USE_OLD_VERSION_
+#ifdef _TRAJ_USE_INFLATION_
         P   = getTrajCoeff(p_s, p_t, B, B, E, T, vel, acc, coeff_t); 
         coeff_t = 1.0;
 #else

@@ -15,13 +15,20 @@ Panels:
         - /Global Options1
         - /Status1
         - /Basic1/Grid1
+        - /UKF Odom1
+        - /Trajectory Generator1
         - /Pelican1/Map 3D Laser1
         - /NUC1/Multi1/Multi3DMap1/Autocompute Value Bounds1
         - /NUC1/VINS1
         - /NUC1/VINS1/IMU1
         - /NUC1/VINS1/Control1
         - /NUC1/VINS1/Control1/Robot Control1/Namespaces1
-        - /PointCloud21
+        - /OctoMap1
+        - /PathStrip1
+        - /PathStrip1/Namespaces1
+        - /InflatedPath1
+        - /InflatedGridPath1
+        - /GridMap1
       Splitter Ratio: 0.5
     Tree Height: 688
   - Class: rviz/Views
@@ -68,7 +75,7 @@ Visualization Manager:
           Marker Topic: /odom_visualization_ukf/robot
           Name: Robot UKF
           Namespaces:
-            {}
+            mesh: true
           Queue Size: 100
           Value: true
         - Alpha: 1
@@ -90,17 +97,23 @@ Visualization Manager:
           Marker Topic: /odom_visualization_ukf/velocity
           Name: Velocity UKF
           Namespaces:
-            {}
+            velocity: true
           Queue Size: 100
           Value: true
         - Alpha: 1
           Buffer Length: 1
           Class: rviz/Path
           Color: 255; 0; 0
-          Enabled: true
+          Enabled: false
+          Line Style: Lines
+          Line Width: 0.03
           Name: Path UKF
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
           Topic: /odom_visualization_ukf/path
-          Value: true
+          Value: false
         - Class: rviz/Marker
           Enabled: false
           Marker Topic: /odom_visualization_ukf/covariance
@@ -148,7 +161,13 @@ Visualization Manager:
           Class: rviz/Path
           Color: 255; 255; 0
           Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
           Name: Path SLAM
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
           Topic: /odom_visualization_slam/path
           Value: true
         - Class: rviz/Marker
@@ -167,26 +186,44 @@ Visualization Manager:
           Buffer Length: 1
           Class: rviz/Path
           Color: 0; 0; 0
-          Enabled: true
+          Enabled: false
+          Line Style: Lines
+          Line Width: 0.03
           Name: Path World
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
           Topic: /waypoint_generator/waypoints_vis
-          Value: true
+          Value: false
         - Alpha: 1
           Buffer Length: 1
           Class: rviz/Path
           Color: 0; 255; 0
-          Enabled: true
+          Enabled: false
+          Line Style: Lines
+          Line Width: 0.03
           Name: Path Desired
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
           Topic: /trajectory_generator/path
-          Value: true
+          Value: false
         - Alpha: 1
           Buffer Length: 1
           Class: rviz/Path
           Color: 255; 0; 255
-          Enabled: true
+          Enabled: false
+          Line Style: Lines
+          Line Width: 0.03
           Name: Path Trajectory
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
           Topic: /trajectory_generator/traj
-          Value: true
+          Value: false
       Enabled: true
       Name: Trajectory Generator
     - Class: rviz/Group
@@ -500,7 +537,13 @@ Visualization Manager:
           Class: rviz/Path
           Color: 255; 255; 0
           Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
           Name: RRT* Path
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
           Topic: /rrts/path
           Value: true
         - Arrow Length: 0.3
@@ -586,7 +629,13 @@ Visualization Manager:
               Class: rviz/Path
               Color: 255; 0; 0
               Enabled: true
+              Line Style: Lines
+              Line Width: 0.03
               Name: Path Laser
+              Offset:
+                X: 0
+                Y: 0
+                Z: 0
               Topic: /odom_visualization_ukf_laser/path
               Value: true
             - Class: rviz/Marker
@@ -636,7 +685,13 @@ Visualization Manager:
               Class: rviz/Path
               Color: 0; 255; 0
               Enabled: true
+              Line Style: Lines
+              Line Width: 0.03
               Name: Path Vision
+              Offset:
+                X: 0
+                Y: 0
+                Z: 0
               Topic: /odom_visualization_ukf_vision/path
               Value: true
             - Class: rviz/Marker
@@ -715,7 +770,13 @@ Visualization Manager:
               Class: rviz/Path
               Color: 255; 255; 0
               Enabled: true
+              Line Style: Lines
+              Line Width: 0.03
               Name: Path GPS
+              Offset:
+                X: 0
+                Y: 0
+                Z: 0
               Topic: /odom_visualization_ukf_gps/path
               Value: true
             - Class: rviz/Marker
@@ -765,7 +826,13 @@ Visualization Manager:
               Class: rviz/Path
               Color: 255; 0; 0
               Enabled: true
+              Line Style: Lines
+              Line Width: 0.03
               Name: Path Multi
+              Offset:
+                X: 0
+                Y: 0
+                Z: 0
               Topic: /odom_visualization_ukf_multi/path
               Value: true
             - Class: rviz/Marker
@@ -893,7 +960,13 @@ Visualization Manager:
                   Class: rviz/Path
                   Color: 255; 0; 0
                   Enabled: false
+                  Line Style: Lines
+                  Line Width: 0.03
                   Name: Path VINS
+                  Offset:
+                    X: 0
+                    Y: 0
+                    Z: 0
                   Topic: /odom_visualization_vins/path
                   Value: false
                 - Alpha: 1
@@ -971,7 +1044,13 @@ Visualization Manager:
                   Class: rviz/Path
                   Color: 0; 255; 0
                   Enabled: true
+                  Line Style: Lines
+                  Line Width: 0.03
                   Name: Path
+                  Offset:
+                    X: 0
+                    Y: 0
+                    Z: 0
                   Topic: /odom_visualization_nonlinear/path
                   Value: true
                 - Alpha: 1
@@ -1049,7 +1128,13 @@ Visualization Manager:
                   Class: rviz/Path
                   Color: 255; 255; 0
                   Enabled: false
+                  Line Style: Lines
+                  Line Width: 0.03
                   Name: Path IMU
+                  Offset:
+                    X: 0
+                    Y: 0
+                    Z: 0
                   Topic: /odom_visualization_imu/path
                   Value: false
               Enabled: false
@@ -1091,7 +1176,13 @@ Visualization Manager:
                   Class: rviz/Path
                   Color: 0; 0; 255
                   Enabled: false
+                  Line Style: Lines
+                  Line Width: 0.03
                   Name: Path Control
+                  Offset:
+                    X: 0
+                    Y: 0
+                    Z: 0
                   Topic: /odom_visualization_control/path
                   Value: false
               Enabled: false
@@ -1108,7 +1199,7 @@ Visualization Manager:
         {}
       Queue Size: 100
       Value: true
-    - Alpha: 0.2
+    - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
         Max Value: 10
@@ -1126,17 +1217,86 @@ Visualization Manager:
       Max Intensity: 4096
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: PointCloud2
+      Name: OctoMap
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.4
+      Size (m): 0.2
       Style: Boxes
       Topic: /trajectory_generator/map_points
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /trajectory_generator/voxel_path
+      Name: GridPath
+      Namespaces:
+        trajectory/grid_path: true
+      Queue Size: 100
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 85; 0; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 0; 0; 0
+      Max Intensity: 0
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: CheckPoints
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.05
+      Style: Spheres
+      Topic: /trajectory_generator/check_point
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /trajectory_generator/line_strip
+      Name: PathStrip
+      Namespaces:
+        trajectory/trajectory: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: false
+      Marker Topic: /trajectory_generator/inflated_grid
+      Name: InflatedPath
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /trajectory_generator/inflated_path
+      Name: InflatedGridPath
+      Namespaces:
+        trajectory/inflated_grid_path: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: false
+      Marker Topic: /trajectory_generator/map_points
+      Name: GridMap
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 61; 61; 61
@@ -1153,22 +1313,22 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 1.96184
+      Distance: 43.8193
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.06
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -12.2794
-        Y: 9.73982
-        Z: 10.2115
+        X: -9.1986
+        Y: 11.4797
+        Z: -12.6985
       Name: Current View
       Near Clip Distance: 0.01
-      Pitch: 0.500204
+      Pitch: 0.539797
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 2.40598
+      Yaw: 4.70058
     Saved: ~
 Window Geometry:
   Displays:
@@ -1182,5 +1342,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1598
-  X: 150
-  Y: 113
+  X: 55
+  Y: 14

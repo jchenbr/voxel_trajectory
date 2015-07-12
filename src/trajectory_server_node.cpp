@@ -30,6 +30,8 @@ class NodeServer
 private:
     // _core server
     VoxelTrajectory::VoxelServer * _core = new VoxelTrajectory::VoxelServer();
+    const double _EPS = 1e-9;
+    const double _EPS_POS = 1e-6;
 
     // interface
     // subscribers
@@ -61,7 +63,7 @@ private:
     // trajectory
     uint32_t _traj_id = 0;
     uint8_t _traj_status = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_EMPTY;
-    vector<double> _goal_points;
+    vector<double> _waypoints;
 
     // input messages
     nav_msgs::Odometry _odom;
@@ -99,6 +101,20 @@ public:
         // publish desired state
         _desired_state_pub = 
             handle.advertise<quadrotor_msgs::PositionCommand>("desired_state", 10);
+
+
+        // pulish visualizatioin
+        _map_vis_pub =
+            handle.advertise<sensor_msgs::PointCloud2>("map_vis", 2);
+        _path_vis_pub =
+            handle.advertise<visualization_msgs::MarkerArray>("path_vis", 2);
+        _inflated_path_vis_pub = 
+            handle.advertise<visualization_msgs::MarkerArray>("inflated_path_vis", 2);
+        _traj_vis_pub =
+            handle.advertise<visualization_msgs::Marker>("trajectory_vis", 2);
+        _check_point_vis_pub =
+            handle.advertise<sensor_msgs::PointCloud2>("checkpoints_vis", 2);
+
     }
 
     void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.4, 
@@ -110,6 +126,21 @@ public:
         _core->setMaxVelocity(_max_vel = max_vel);
         _core->setMaxAcceleration(_max_acc = max_acc);
         _has_map = true;
+    
+        double pos_gain[_TOT_DIM] = {3.7, 3.7, 5.2};
+        double vel_gain[_TOT_DIM] = {2.4, 2.4, 3.0};
+        setGains(pos_gain, vel_gain);
+    }
+    
+    void setGains(double pos_gain[_TOT_DIM], double vel_gain[_TOT_DIM])
+    {
+        _pos_cmd.kx[_DIM_x] = pos_gain[_DIM_x];
+        _pos_cmd.kx[_DIM_y] = pos_gain[_DIM_y];
+        _pos_cmd.kx[_DIM_z] = pos_gain[_DIM_z];
+
+        _pos_cmd.kv[_DIM_x] = vel_gain[_DIM_x];
+        _pos_cmd.kv[_DIM_y] = vel_gain[_DIM_y];
+        _pos_cmd.kv[_DIM_z] = vel_gain[_DIM_z];
     }
 
     void publishDesiredState()
@@ -118,26 +149,40 @@ public:
        // to do : get the desired state from the _core
        if (_has_traj)
        {
-           vector<double> state = _core->getDesiredState(_odom.header.stamp.toSec());
-
            // quadrotor_msgs desired state
            _pos_cmd.header = _odom.header;
 
            if (_odom.header.stamp < _final_time)
            {
+               vector<double> state = _core->getDesiredState(_odom.header.stamp.toSec());
                _pos_cmd.trajectory_flag = 
                    quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
                _pos_cmd.position.x = state[_TOT_DIM * 0 + _DIM_x];
                _pos_cmd.position.y = state[_TOT_DIM * 0 + _DIM_y];
                _pos_cmd.position.z = state[_TOT_DIM * 0 + _DIM_z];
 
-               _pos_cmd.velocity.x = state[_TOT_BDY * 1 + _DIM_x];
-               _pos_cmd.velocity.y = state[_TOT_BDY * 1 + _DIM_y];
-               _pos_cmd.velocity.z = state[_TOT_BDY * 1 + _DIM_z];
+               _pos_cmd.velocity.x = state[_TOT_DIM * 1 + _DIM_x];
+               _pos_cmd.velocity.y = state[_TOT_DIM * 1 + _DIM_y];
+               _pos_cmd.velocity.z = state[_TOT_DIM * 1 + _DIM_z];
 
-               _pos_cmd.acceleration.x = state[_TOT_BDY * 2 + _DIM_x];
-               _pos_cmd.acceleration.y = state[_TOT_BDY * 2 + _DIM_y];
-               _pos_cmd.acceleration.z = state[_TOT_BDY * 2 + _DIM_z];
+               _pos_cmd.acceleration.x = state[_TOT_DIM * 2 + _DIM_x];
+               _pos_cmd.acceleration.y = state[_TOT_DIM * 2 + _DIM_y];
+               _pos_cmd.acceleration.z = state[_TOT_DIM * 2 + _DIM_z];
+
+               if (_waypoints.size() > 0 &&
+                    abs(state[_DIM_x] - _waypoints[_DIM_x]) < _EPS_POS &&
+                    abs(state[_DIM_y] - _waypoints[_DIM_y]) < _EPS_POS &&
+                    abs(state[_DIM_z] - _waypoints[_DIM_z]) < _EPS_POS)
+               {
+                   for (size_t idx = 0; idx + _TOT_DIM < _waypoints.size(); ++idx)
+                   {
+                       _waypoints[idx] = _waypoints[idx + _TOT_DIM];
+                   }
+                   _waypoints.pop_back();
+                   _waypoints.pop_back();
+                   _waypoints.pop_back();
+               }
+
 
                _pos_cmd.yaw = tf::getYaw(_odom.pose.pose.orientation);
                _pos_cmd.yaw_dot = 0.0;
@@ -163,6 +208,8 @@ public:
            }
 
            _desired_state_pub.publish(_pos_cmd);
+           //ROS_INFO("[TRAJ] Published desired states, at [%.3lf %.3lf %.3lf]", 
+           //        _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z);
        }
     }
 
@@ -170,8 +217,30 @@ public:
     {
         _odom = odom;
         _has_odom = true;
+        //ROS_INFO("[TRAJ] Received odometry message. now at : [%.3lf %.3lf %.3lf]",
+        //        odom.pose.pose.position.x,
+        //        odom.pose.pose.position.y,
+        //        odom.pose.pose.position.z);
         
         publishDesiredState();
+    }
+
+    void checkHalfWay()
+    {
+        if (_odom.header.stamp < _final_time && _core->checkHalfWayObstacle_BrutalForce())
+        {
+            if (_waypoints.size() == 0) return ;
+            nav_msgs::Path path;
+            path.poses.resize(_waypoints.size() / _TOT_DIM);
+            for (size_t idx = 0; idx * _TOT_DIM < _waypoints.size(); ++idx)
+            {
+                path.poses[idx].pose.position.x = _waypoints[idx * _TOT_DIM + _DIM_x];
+                path.poses[idx].pose.position.y = _waypoints[idx * _TOT_DIM + _DIM_y];
+                path.poses[idx].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
+            }
+
+            setDestinationWaypoints(path);
+        }
     }
 
     void addObstaclePoints(const sensor_msgs::PointCloud2 & cloud)
@@ -192,6 +261,10 @@ public:
         }
 
         _core->addMapBlock(pt);
+
+        checkHalfWay();
+
+        visMap();
     }
 
     void addObstacleBlocks(const sensor_msgs::PointCloud2 & cloud)
@@ -211,6 +284,10 @@ public:
             blk.push_back(data[idx * _TOT_BDY + _BDY_Z] + _safe_margin);    
         }
         _core->addMapBlock(blk);
+
+        checkHalfWay();
+
+        visMap();
     }
 
     void setDestination(const geometry_msgs::Point & pt)
@@ -220,9 +297,9 @@ public:
         
         vector<double> state = 
         {
-            _odom.pose.pose.position.x,
-            _odom.pose.pose.position.y,
-            _odom.pose.pose.position.z,
+            _odom.pose.pose.position.x + _EPS,
+            _odom.pose.pose.position.y + _EPS,
+            _odom.pose.pose.position.z + _EPS,
             _odom.twist.twist.linear.x,
             _odom.twist.twist.linear.y,
             _odom.twist.twist.linear.z,
@@ -233,6 +310,7 @@ public:
 
         vector<double> waypoints = {pt.x, pt.y, pt.z};
 
+        _waypoints.clear();
         if (_core->setWayPoints(state, waypoints, _odom.header.stamp.toSec()) != 2)
         {
             ROS_WARN("[TRAJ] Generating the trajectory failed!");
@@ -241,12 +319,22 @@ public:
         }
         else
         {
+            _waypoints = waypoints;
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = pt;
             _final_time = ros::Time(_core->getFinalTime());
         }
 
         _has_traj = true;
+         ROS_INFO("[TRAJ] Starting visualization.");
+        visTrajectory();
+        ROS_INFO("[TRAJ] Trajectory visualzation finished.");
+        visPath();
+        ROS_INFO("[TRAJ] Path visualzation finished.");
+        visInflatedPath();
+        ROS_INFO("[TRAJ] Inflated path visualzation finished.");
+        visCheckpoint();
+        ROS_INFO("[TRAJ] Checkpoints visualzation finished.");
     }
 
     void setDestinationWaypoints(const nav_msgs::Path & wp)
@@ -256,9 +344,9 @@ public:
 
         vector<double> state = 
         {
-            _odom.pose.pose.position.x,
-            _odom.pose.pose.position.y,
-            _odom.pose.pose.position.z,
+            _odom.pose.pose.position.x + _EPS,
+            _odom.pose.pose.position.y + _EPS,
+            _odom.pose.pose.position.z + _EPS,
             _odom.twist.twist.linear.x,
             _odom.twist.twist.linear.y,
             _odom.twist.twist.linear.z,
@@ -277,44 +365,62 @@ public:
             waypoints.push_back(pose.pose.position.z);
         }
 
+        _waypoints.clear();
+
         if (_core->setWayPoints(state, waypoints, _odom.header.stamp.toSec()) != 2)
         {
-            ROS_WARN("[TRAJ] Generating the trajectory failed!");
+            ROS_INFO("[TRAJ] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
         }
         else
         {
+            ROS_INFO("[TRAJ] Generating the trajectory succeed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = wp.poses.back().pose.position;
+            _waypoints = waypoints;
             _final_time = ros::Time(_core->getFinalTime());
         }
 
         _has_traj = true;
+
+        ROS_INFO("[TRAJ] Starting visualization.");
+        visTrajectory();
+        ROS_INFO("[TRAJ] Trajectory visualzation finished.");
+        visPath();
+        ROS_INFO("[TRAJ] Path visualzation finished.");
+        visInflatedPath();
+        ROS_INFO("[TRAJ] Inflated path visualzation finished.");
+        visCheckpoint();
+        ROS_INFO("[TRAJ] Checkpoints visualzation finished.");
     }
 
-    void disableVisulization()
+    void disableVisualization()
     {
         _is_vis = false;
     }
 
-    void enbaleVisulization()
+    void enableVisualization()
     {
         _is_vis = true;
     }
 
     void visMap()
     {
+        //ROS_INFO("[TRAJ] Map visualization start... flag : is_vis = %d, has_map = %d",
+               // _is_vis, _has_map);
+
         if (!_is_vis || !_has_map) return ;
         vector<double> pt = _core->getPointCloud();
+        //ROS_INFO("[TRAJ] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
 
-        float pt32[pt.size()];
-        for (size_t idx = 0; idx < pt.size(); ++idx)
-            pt32[idx] = static_cast<float>(pt[idx]);
+        vector<float> pt32;
+        pt32.resize(pt.size());
+        for (size_t idx = 0; idx < pt.size(); ++idx) pt32[idx] = static_cast<float>(pt[idx]);
+        //ROS_INFO("[TRAJ] float points alredy.");
 
-        ROS_WARN("[TRAJ] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
         const double * bdy = _core->getBdy();
-        ROS_WARN("[TRAJ] The boundary of the map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
+        ROS_INFO("[TRAJ] The boundary of the map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
                 bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
 
         _map_vis.header.frame_id = "/map";
@@ -329,7 +435,7 @@ public:
         _map_vis.row_step = _map_vis.point_step * _map_vis.width;
 
         sensor_msgs::PointField field;
-        _map_vis.resize(_TOT_DIM);
+        _map_vis.fields.resize(_TOT_DIM);
         string f_name[_TOT_DIM] = {"x", "y", "z"};
         for (size_t idx = 0; idx < _TOT_DIM; ++idx)
         {
@@ -342,7 +448,7 @@ public:
 
         _map_vis.data.clear();
         _map_vis.data.reserve(_map_vis.row_step);
-        uint8_t * pt_int = reinterpret_cast<uint8_t *>(pt32);
+        uint8_t * pt_int = reinterpret_cast<uint8_t *>(pt32.data());
         for (size_t idx = 0; idx < _map_vis.row_step; ++idx)
         {
             _map_vis.data.push_back(pt_int[idx]);
@@ -355,11 +461,14 @@ public:
             loop_rate.sleep();
         }
         _map_vis_pub.publish(_map_vis);
+        ROS_INFO("[TRAJ] Map visualization finished. Total number of points : %d.", 
+                _map_vis.point_step);
     }
 
     void visTrajectory()
     {
         if (!_is_vis || !_has_traj) return ;
+        if (_odom.header.stamp > _final_time) return;
         _traj_vis.header.stamp       = _odom.header.stamp;
         _traj_vis.header.frame_id    = "/map";
 
@@ -387,9 +496,12 @@ public:
 
         double t_begin = _core->getBeginTime(), t_final = _core->getFinalTime();
         _traj_vis.points.clear();
+        ROS_INFO("[TRAJ] Trajectory time : %.3lf %.3lf", t_begin, t_final);
         _traj_vis.points.reserve(static_cast<int>((t_final - t_begin) * 100 + 0.5));
         vector<double> state;
         geometry_msgs::Point pt;
+
+        ROS_INFO("[TRAJ] Trajectory visualization prepared.");
 
         for (double t = t_begin; t < t_final; t += 0.02, count += 1)
         {
@@ -403,7 +515,7 @@ public:
             pre = cur;
         }
 
-        ROS_DEBUG("[TRAJ] The length of the trajectory; %.3lfm.", traj_len);
+        ROS_INFO("[TRAJ] The length of the trajectory; %.3lfm.", traj_len);
         _traj_vis_pub.publish(_traj_vis);
     }
 
@@ -460,7 +572,7 @@ public:
         _inflated_path_vis_pub.publish(_inflated_path_vis);
 
         const Eigen::MatrixXd & path = _core->getInflatedPathConstRef();
-        size_t M = path.rows() >> 1;
+        size_t M = path.rows();
 
         _inflated_path_vis.markers.clear();
         _inflated_path_vis.markers.reserve(M);
@@ -542,6 +654,31 @@ int main(int argc, char ** argv)
     ros::NodeHandle handle("~");
 
     NodeServer server(handle);
+
+    bool is_vis;
+    double bdy[_TOT_BDY], resolution, safe_margin;
+    double max_vel, max_acc;
+
+    handle.param("flag/visualization", is_vis, true);
+    handle.param("map/boundary/lower_x", bdy[_BDY_x], -100.0);
+    handle.param("map/boundary/upper_x", bdy[_BDY_X], 100.0);
+    handle.param("map/boundary/lower_y", bdy[_BDY_y], -100.0);
+    handle.param("map/boundary/upper_y", bdy[_BDY_Y], 100.0);
+    handle.param("map/boundary/lower_z", bdy[_BDY_z], -100.0);
+    handle.param("map/boundary/upper_z", bdy[_BDY_Z], 200.0);
+    handle.param("map/resolution", resolution, 0.4);
+    handle.param("map/safe_margin", safe_margin, 0.3);
+    handle.param("max_velocity", max_vel, 1.0);
+    handle.param("max_acceleration", max_acc, 1.0);
+
+
+    ROS_INFO("[TRAJ] vel = %.3lf acc = %.3lf", max_vel, max_acc);
+    server.buildMap(bdy, resolution, safe_margin, max_vel, max_acc);
+
+    if (is_vis) 
+        server.enableVisualization();
+    else
+        server.disableVisualization();
 
     ros::spin();
     return 0;

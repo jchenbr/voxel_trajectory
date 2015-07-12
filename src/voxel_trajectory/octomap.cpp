@@ -607,7 +607,7 @@ namespace VoxelTrajectory
     int OctoMap::queryPoint(int rt, const double pt[_TOT_DIM])
     {
         if (node[rt].son[0] == _NODE_NULL) return rt;
-#if 1
+#if 0
         clog << "Pt  : "; clog << pt[0] << ", " << pt[1] << ", " << pt[2] << endl;
         clog << "Box : "; printBlock(node[rt].bdy);
         clog << "son : "; for (auto chd : node[rt].son) clog << chd << ", "; clog << endl;
@@ -620,6 +620,7 @@ namespace VoxelTrajectory
             if (within(pt, node[node[rt].son[chd]].bdy)) 
                 return queryPoint(node[rt].son[chd], pt);
         }
+        return rt;
     }
 
     bool OctoMap::testObstacle(const double pt[_TOT_DIM])
@@ -631,38 +632,41 @@ namespace VoxelTrajectory
     pair<Eigen::MatrixXd, Eigen::MatrixXd>
         OctoMap::getPath(const double src[_TOT_DIM], const double dest[_TOT_DIM])
     {
-        assert(within(src, node[_NODE_ROOT].bdy) && within(dest, node[_NODE_ROOT].bdy));
+        if (!within(src, node[_NODE_ROOT].bdy) || !within(dest, node[_NODE_ROOT].bdy))
+            return make_pair(Eigen::MatrixXd(0, 0), Eigen::MatrixXd(0, 0));
 
-        clog << "src = " << src[0] << ", " << src[1] << ", " << src[2] << endl;
-        clog << "dest = " << dest[0] << ", " << dest[1] << ", " << dest[2] << endl;
+        //clog << "src = " << src[0] << ", " << src[1] << ", " << src[2] << endl;
+        //clog << "dest = " << dest[0] << ", " << dest[1] << ", " << dest[2] << endl;
 
         auto src_id = queryPoint(_NODE_ROOT, src);
         auto dest_id = queryPoint(_NODE_ROOT, dest);
+        if (node[src_id].tag != _TAG_EMP || node[dest_id].tag != _TAG_EMP) 
+            return make_pair(Eigen::MatrixXd(0, 0), Eigen::MatrixXd(0, 0));
 
-        clog << "id " << src_id << ", " << dest_id << endl;
+        //clog << "id " << src_id << ", " << dest_id << endl;
 
-        auto p_src_node = graph_node_ptr[queryPoint(_NODE_ROOT, src)];
-        auto p_dest_node = graph_node_ptr[queryPoint(_NODE_ROOT, dest)];
+        auto p_src_node = graph_node_ptr[src_id];
+        auto p_dest_node = graph_node_ptr[dest_id];
 
-        clog << "address : " << p_src_node << ", " << p_dest_node << endl;
+        //clog << "address : " << p_src_node << ", " << p_dest_node << endl;
 
-        clog << "src : " << p_src_node->id << ", dest : " << p_dest_node->id << endl;
+        //clog << "src : " << p_src_node->id << ", dest : " << p_dest_node->id << endl;
 
         double bdy[_TOT_BDY];
 
         for (int dim = 0; dim < _TOT_BDY; ++dim) bdy[dim] = src[dim >> 1]; 
         auto p_src_edge = new VoxelGraph::Edge(NULL, p_src_node, bdy);
         p_src_node->nxt[-1] = p_src_edge;
-        clog << "src pos : "; printBlock(bdy);
+        //clog << "src pos : "; printBlock(bdy);
 
         for (int dim = 0; dim < _TOT_BDY; ++dim) bdy[dim] = dest[dim >> 1];
         auto p_dest_edge = new VoxelGraph::Edge(p_dest_node, NULL, bdy);
         p_dest_node->nxt[-2] = p_dest_edge;
-        clog << "dest pos : "; printBlock(bdy);
+        //clog << "dest pos : "; printBlock(bdy);
 
     
         auto ret = VoxelGraph::getPathAStar(p_src_edge, p_dest_edge);
-        clog << "edge :\n" << ret.first << endl << "node:\n" << ret.second << endl;
+        //clog << "edge :\n" << ret.first << endl << "node:\n" << ret.second << endl;
 
         p_src_node->nxt.erase(-1);
         delete p_src_edge;
@@ -756,6 +760,7 @@ namespace VoxelTrajectory
             }
         }
 
+        clog << "[TRAJ] Map points already in octomap module." << endl;
         return pt;
     }
 

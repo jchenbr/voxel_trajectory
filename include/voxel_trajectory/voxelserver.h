@@ -17,6 +17,7 @@
 
 const double _DB_INF = 1e100;
 const double _eps = 1e-9;
+const double _eps_vel = 1e-3;
 
 namespace VoxelTrajectory
 {
@@ -40,7 +41,7 @@ private:
         double coeff_t;
 
         VoxelTrajectory::OctoMap * voxel_map;
-        ros::Publisher * pt_grid_pub;
+        ros::Publisher * pt_grid_pub = NULL;
 public:
 
         // # -1. func for visualization
@@ -53,6 +54,8 @@ public:
         // publish grid for visualization, brutal way
         void publishGrid(double grid[_TOT_BDY], int id = 0)
         {
+            if (pt_grid_pub == NULL) return ;
+
             visualization_msgs::Marker marker;
 
             marker.header.frame_id  = "/map";
@@ -277,7 +280,7 @@ public:
                         bdy[_BDY_z], bdy[_BDY_Z];
 
                     // visualize it.
-                    publishGrid(bdy, iRow);
+                    //publishGrid(bdy, iRow);
                 }
                 clog << "[ inflated Path ]: \n" << inflated_path << endl;
 #endif
@@ -305,12 +308,16 @@ public:
                 p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
                 p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
                 auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
+                if (edge_node.first.rows() == 0) 
+                {
+                    ROS_WARN("[TRAJ] Can't find a path.");
+                    return -1;
+                }
                 vec_edge.push_back(edge_node.first);
                 vec_node.push_back(edge_node.second);
                 m += edge_node.second.cols();
             }
-            clog << " the array of node and edge : " << vec_node.size()
-                << ", " << vec_edge.size() << endl;
+            //clog << " the array of node and edge : " << vec_node.size()<< ", " << vec_edge.size() << endl;
 
             MatrixXd edge(m + 1, _TOT_BDY), node(m, _TOT_BDY);
 
@@ -352,11 +359,6 @@ public:
                        Vel, Acc, max_vel, max_acc, coeff_t);
 
 
-            // inflation rate
-            coeff_t = 1.0 / coeff_t;
-
-            clog << "coeff t = " << coeff_t << endl;
-
             P   = traj.first;
             T   = traj.second;
 
@@ -371,7 +373,15 @@ public:
             nTraj   = T.rows();
 
             init_time = init_T;
-            final_time = init_T + T.sum();
+
+             // inflation rate
+            coeff_t = 1.0 / coeff_t;
+            vector<double> state = getDesiredState(init_time);
+            if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
+
+            clog << "coeff t = " << coeff_t << endl;
+
+           final_time = init_T + T.sum();
 
             return ret;
         }
@@ -397,6 +407,11 @@ public:
                 auto edge_node = voxel_map->getPath(p[0], p[1]);
                 auto & edge = edge_node.first;
                 auto & node = edge_node.second;
+                if (edge.rows() == 0)
+                {
+                    ROS_WARN("[TRAJ] Can't find a path.");
+                    return -1;
+                }
                 
                 int m = node.cols();
 
@@ -432,12 +447,6 @@ public:
                    traj_gen.genPolyCoeffTime(path, inflated_path, 
                            Vel, Acc, max_vel, max_acc, coeff_t);
 
-
-                // inflation rate
-                coeff_t = 1.0 / coeff_t;
-
-                clog << "coeff t = " << coeff_t << endl;
-
                 P   = traj.first;
                 T   = traj.second;
 
@@ -454,6 +463,11 @@ public:
 
             init_time = init_T;
             final_time = init_T + T.sum();
+
+            // inflation rate
+            coeff_t = 1.0 / coeff_t;
+            vector<double> state = getDesiredState(init_time);
+            if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
 
             return ret;
         }
