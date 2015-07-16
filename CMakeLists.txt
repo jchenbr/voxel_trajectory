@@ -135,13 +135,17 @@ add_library(trajectorygenerator_	src/voxel_trajectory/trajectorygenerator.cpp)
 
 add_executable(mission_commander_node src/mission_commander_node.cpp)
 
-add_executable(voxel_trajectory_generator_node src/trajectory_generator_node.cpp)
+#add_executable(voxel_trajectory_generator_node src/trajectory_generator_node.cpp)
 
-add_executable(voxel_bridge_node src/voxel_bridge_node.cpp)
+#add_executable(voxel_bridge_node src/voxel_bridge_node.cpp)
 
 add_executable(voxel_bridge_enhanced_node src/voxel_bridge_enhanced_node.cpp)
 
 add_executable(voxel_set_obstacle_node src/voxel_set_obstacle_node.cpp)
+
+add_executable(trajectory_server_node src/trajectory_server_node.cpp)
+
+add_executable(test_limited_sensing_node src/test_limited_sensing_node.cpp)
 
 
 ## Add cmake target dependencies of the executable/library
@@ -185,22 +189,44 @@ add_executable(voxel_set_obstacle_node src/voxel_set_obstacle_node.cpp)
 
 target_link_libraries(octomap_ voxelgraph_)
 
-target_link_libraries( voxel_trajectory_generator_node
-	${catkin_LIBRARIES}
-	${PCL_COMMON_LIBRRIES}
-	${PCL_IO_LIBRARIES}
-       
-	octomap_
-	trajectorygenerator_
-
-	ooqpgensparse
-	ooqpsparse
-	ooqpgondzio
-	ooqpbase
-	blas
-	ma27
-	gfortran
+target_link_libraries(test_limited_sensing_node
+    ${catkin_LIBRARIES}
+    octomap_
 )
+
+target_link_libraries(trajectory_server_node
+    ${catkin_LIBRARIES}
+    ${PCL_COMMON_LIBRRIES}
+    ${PCL_IO_LIBRARIES}
+
+    octomap_
+    trajectorygenerator_
+
+    ooqpgensparse
+    ooqpsparse
+    ooqpgondzio
+    ooqpbase
+    blas
+    ma27
+    gfortran
+)
+
+#target_link_libraries( voxel_trajectory_generator_node
+#	${catkin_LIBRARIES}
+#	${PCL_COMMON_LIBRRIES}
+#	${PCL_IO_LIBRARIES}
+#       
+#	octomap_
+#	trajectorygenerator_
+#
+#	ooqpgensparse
+#	ooqpsparse
+#	ooqpgondzio
+#	ooqpbase
+#	blas
+#	ma27
+#	gfortran
+#)
 
 
 target_link_libraries( mission_commander_node
@@ -221,9 +247,9 @@ target_link_libraries( mission_commander_node
 	gfortran
 )
 
-target_link_libraries( voxel_bridge_node
-	${catkin_LIBRARIES}
-)
+#target_link_libraries( voxel_bridge_node
+#	${catkin_LIBRARIES}
+#)
 
 target_link_libraries( voxel_bridge_enhanced_node
 	${catkin_LIBRARIES}

@@ -31,7 +31,7 @@ private:
     // _core server
     VoxelTrajectory::VoxelServer * _core = new VoxelTrajectory::VoxelServer();
     const double _EPS = 1e-9;
-    const double _EPS_POS = 1e-6;
+    const double _EPS_POS = 1e-1;
 
     // interface
     // subscribers
@@ -64,6 +64,7 @@ private:
     uint32_t _traj_id = 0;
     uint8_t _traj_status = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_EMPTY;
     vector<double> _waypoints;
+    vector<double> _arr_time;
 
     // input messages
     nav_msgs::Odometry _odom;
@@ -169,26 +170,29 @@ public:
                _pos_cmd.acceleration.y = state[_TOT_DIM * 2 + _DIM_y];
                _pos_cmd.acceleration.z = state[_TOT_DIM * 2 + _DIM_z];
 
-               if (_waypoints.size() > 0 &&
-                    abs(state[_DIM_x] - _waypoints[_DIM_x]) < _EPS_POS &&
-                    abs(state[_DIM_y] - _waypoints[_DIM_y]) < _EPS_POS &&
-                    abs(state[_DIM_z] - _waypoints[_DIM_z]) < _EPS_POS)
-               {
-                   for (size_t idx = 0; idx + _TOT_DIM < _waypoints.size(); ++idx)
-                   {
-                       _waypoints[idx] = _waypoints[idx + _TOT_DIM];
-                   }
-                   _waypoints.pop_back();
-                   _waypoints.pop_back();
-                   _waypoints.pop_back();
-               }
-
-
                _pos_cmd.yaw = tf::getYaw(_odom.pose.pose.orientation);
                _pos_cmd.yaw_dot = 0.0;
            }
            else
            {
+#if 0
+               if (!(_final_time > ros::TIME_MIN)) return ;
+               ROS_WARN("[TRAJ] last dest: [%.3lf %.3lf %.3lf]", 
+                       _last_dest.pose.pose.position.x,
+                       _last_dest.pose.pose.position.y,
+                       _last_dest.pose.pose.position.z);
+
+               ROS_WARN("[TRAJ] last desired: \n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]", 
+                       _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z,
+                       _pos_cmd.velocity.x, _pos_cmd.velocity.y, _pos_cmd.velocity.z,
+                       _pos_cmd.acceleration.x, _pos_cmd.acceleration.y, _pos_cmd.acceleration.z);
+
+               vector<double> state = _core->getDesiredState(_odom.header.stamp.toSec());
+               ROS_WARN("[TRAJ] desired dest: [%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]", 
+                       state[0], state[1], state[2], 
+                       state[3], state[4], state[5], 
+                       state[6], state[7], state[8]);
+#endif
                _final_time = ros::TIME_MIN;
                
                _pos_cmd.trajectory_flag = 
@@ -227,20 +231,54 @@ public:
 
     void checkHalfWay()
     {
+        //ROS_INFO("[TRAJ] Checking halfway obstacle!!");
         if (_odom.header.stamp < _final_time && _core->checkHalfWayObstacle_BrutalForce())
         {
-            if (_waypoints.size() == 0) return ;
-            nav_msgs::Path path;
-            path.poses.resize(_waypoints.size() / _TOT_DIM);
-            for (size_t idx = 0; idx * _TOT_DIM < _waypoints.size(); ++idx)
+#if 0
+            ROS_INFO("[TRAJ] Replan. Will set up %lu waypoint(s).", _waypoints.size());
+            ROS_INFO("[TRAJ] Replan. %lu arr_time.", _arr_time.size());
+            for (size_t i = 0; i < _arr_time.size(); ++i) 
             {
-                path.poses[idx].pose.position.x = _waypoints[idx * _TOT_DIM + _DIM_x];
-                path.poses[idx].pose.position.y = _waypoints[idx * _TOT_DIM + _DIM_y];
-                path.poses[idx].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
+                ROS_INFO("t = %.3lf, dest = [%.3lf %.3lf %.3lf]", _arr_time[i], 
+                        _waypoints[i * _TOT_DIM + _DIM_x],
+                        _waypoints[i * _TOT_DIM + _DIM_y],
+                        _waypoints[i * _TOT_DIM + _DIM_z]); 
+            }
+#endif
+
+            _final_time = ros::TIME_MIN;
+            
+            if (_arr_time.size() * _TOT_DIM != _waypoints.size())
+            {
+                ROS_WARN("[TRAJ] Replan failed. arr_time size = %lu, waypoints size = %lu",
+                        _arr_time.size(), _waypoints.size());
+                return ;
+            }
+
+            size_t vaild_id;
+            for (vaild_id = 0; vaild_id < _arr_time.size(); ++vaild_id)
+            {
+                if (_odom.header.stamp.toSec() < _arr_time[vaild_id]) break;
+            }
+
+            //ROS_INFO("[TRAJ] now time = %.3lf", _odom.header.stamp.toSec());
+            //ROS_INFO("[TRAJ] vaild id = %lu", vaild_id);
+
+            if (vaild_id >= _arr_time.size()) return ;
+
+            nav_msgs::Path path;
+            path.poses.resize(_arr_time.size() - vaild_id);
+
+            for (size_t idx = vaild_id; idx < _arr_time.size(); ++idx)
+            {
+                path.poses[idx - vaild_id].pose.position.x = _waypoints[idx * _TOT_DIM + _DIM_x];
+                path.poses[idx - vaild_id].pose.position.y = _waypoints[idx * _TOT_DIM + _DIM_y];
+                path.poses[idx - vaild_id].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
             }
 
             setDestinationWaypoints(path);
         }
+        //ROS_INFO("[TRAJ] HALF_WAY_CHECK DONE!!");
     }
 
     void addObstaclePoints(const sensor_msgs::PointCloud2 & cloud)
@@ -249,7 +287,7 @@ public:
 
         const float * data = reinterpret_cast<const float *>(cloud.data.data());
         vector<double> pt;
-        pt.reserve(cloud.width * _TOT_DIM);
+        pt.reserve(cloud.width * _TOT_BDY);
         for (size_t idx = 0; idx < cloud.width; ++idx)
         {
             pt.push_back(data[idx * _TOT_DIM + _DIM_x] - _safe_margin);
@@ -273,7 +311,7 @@ public:
 
         const float * data = reinterpret_cast<const float *>(cloud.data.data());
         vector<double> blk;
-        blk.reserve(cloud.width * _TOT_DIM);
+        blk.reserve(cloud.width * _TOT_BDY);
         for (size_t idx = 0; idx < cloud.width; ++idx)
         {
             blk.push_back(data[idx * _TOT_BDY + _BDY_x] - _safe_margin);    
@@ -308,18 +346,18 @@ public:
             0.0
         };
 
-        vector<double> waypoints = {pt.x, pt.y, pt.z};
+        _waypoints = vector<double> {pt.x, pt.y, pt.z};
 
-        _waypoints.clear();
-        if (_core->setWayPoints(state, waypoints, _odom.header.stamp.toSec()) != 2)
+        if (_core->setWayPoints(state, _waypoints, _odom.header.stamp.toSec(), _arr_time) != 2)
         {
+            _arr_time.clear();
+            _waypoints.clear();
             ROS_WARN("[TRAJ] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
         }
         else
         {
-            _waypoints = waypoints;
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = pt;
             _final_time = ros::Time(_core->getFinalTime());
@@ -355,20 +393,22 @@ public:
             0.0
         };
 
-        vector<double> waypoints;
-        waypoints.reserve(wp.poses.size() * _TOT_DIM);
+        _waypoints.clear();
+        _waypoints.reserve(wp.poses.size() * _TOT_DIM);
 
         for (auto & pose: wp.poses) 
         {
-            waypoints.push_back(pose.pose.position.x);
-            waypoints.push_back(pose.pose.position.y);
-            waypoints.push_back(pose.pose.position.z);
+            _waypoints.push_back(pose.pose.position.x);
+            _waypoints.push_back(pose.pose.position.y);
+            _waypoints.push_back(pose.pose.position.z);
         }
 
-        _waypoints.clear();
+        ROS_INFO("[TRAJ] Generating the trajectory.");
 
-        if (_core->setWayPoints(state, waypoints, _odom.header.stamp.toSec()) != 2)
+        if (_core->setWayPoints(state, _waypoints, _odom.header.stamp.toSec(), _arr_time) != 2)
         {
+            _arr_time.clear();
+            _waypoints.clear();
             ROS_INFO("[TRAJ] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
@@ -378,7 +418,6 @@ public:
             ROS_INFO("[TRAJ] Generating the trajectory succeed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = wp.poses.back().pose.position;
-            _waypoints = waypoints;
             _final_time = ros::Time(_core->getFinalTime());
         }
 

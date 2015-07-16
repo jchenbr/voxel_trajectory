@@ -18,6 +18,7 @@
 const double _DB_INF = 1e100;
 const double _eps = 1e-9;
 const double _eps_vel = 1e-3;
+const double _eps_pos = 1e-5;
 
 namespace VoxelTrajectory
 {
@@ -162,7 +163,8 @@ public:
             vector<double> state;
             for (double t = init_time; t < final_time; t += _CHECK_DELTA_T)
             {
-                getDesiredState(t);
+                state = getDesiredState(t);
+
                 if (voxel_map->testObstacle(state.data())) 
                 {
                     return true;
@@ -178,13 +180,14 @@ public:
 #if 1
                 auto within = [&](double pt[_TOT_DIM], double bdy[_TOT_BDY])
                 {
-                    //for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
-                    //for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
+                    for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
+                    for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
                     for (int dim = 0; dim < _TOT_BDY; ++dim)
                     {
                         if (abs(pt[dim >> 1] - bdy[dim]) < _eps) return dim;
                     }
-                    assert(false);
+                    //clog << "[VOXEL_SERVER] can't find the neighbor direction." << endl;
+                    return 0;
                     //clog << "!" << endl;
                 };
 
@@ -202,10 +205,10 @@ public:
                     };
 
 
-                    //clog << "iRow = " << iRow << endl; 
+                    //clog << "[VOXEL_SERVER] iRow = " << iRow << endl; 
                     if (iRow == 0)
                     {
-                        double pt[_TOT_DIM + _TOT_DIM] =  
+                        double pt[_TOT_DIM] =  
                         {
                             (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
                             (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
@@ -214,9 +217,9 @@ public:
                         //clog << " ? " << endl;
                         neighbor[within(pt, bdy)] = 1;
                     }
-                    else if (iRow + 1== m)
+                    else if (iRow + 1 == m)
                     {
-                        double pt[_TOT_DIM + _TOT_DIM] = 
+                        double pt[_TOT_DIM] = 
                         {
                             (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
                             (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
@@ -231,6 +234,7 @@ public:
                             (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
                             (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
                             (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5,
+
                             (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
                             (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
                             (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
@@ -239,8 +243,10 @@ public:
                         neighbor[within(pt + _TOT_DIM, bdy)] = 1;
                     }
 
-                   // #1. inflate towards all direction inflation;
+                    //clog << "[VOXEL_SERVER] preparation done." << endl;
+                    // #1. inflate towards all direction inflation;
                     voxel_map->inflateBdy(bdy, direction);
+                    //clog << "[VOXEL_SERVER] all direction inflation done." << endl;
 
                     // #2. inflate towards labours;
                     
@@ -257,9 +263,10 @@ public:
                         if (neighbor[dim] != 0)
                         {
                             neighbor[dim] = 0;
-                            voxel_map->inflateBdy(bdy, neighbor, 8);
+                            voxel_map->inflateBdy(bdy, neighbor, 12);
                             neighbor[dim] = (dim & 1) ? 1 : -1;
                         }
+                    //clog << "[VOXEL_SERVER] neighbor inflation done." << endl;
                     
 
                     // #3. inflate towards one direction each time;
@@ -269,8 +276,13 @@ public:
                        // clog << "[!!] drc = " << drc << endl;
                         memset(direction, 0, sizeof(direction));
                         direction[drc] = (drc & 1) ? 1 : -1;
-                        voxel_map->inflateBdy(bdy, direction, 8);
+                        voxel_map->inflateBdy(bdy, direction, 12);
                     }
+                    //clog << "[VOXEL_SERVER] one direction inflation done." << endl;
+                    //clog << "[VOXEL_SERVER] " << 
+                    //    bdy[_BDY_x] << ", " << bdy[_BDY_X] << ", " << 
+                    //    bdy[_BDY_y] << ", " << bdy[_BDY_Y] << ", " <<
+                    //    bdy[_BDY_z] << ", " << bdy[_BDY_Z] << endl; 
 
                     //clog << "----------------------------------------" << endl;
                     // store in the matrix
@@ -278,11 +290,12 @@ public:
                         bdy[_BDY_x], bdy[_BDY_X],
                         bdy[_BDY_y], bdy[_BDY_Y],
                         bdy[_BDY_z], bdy[_BDY_Z];
+                    //clog << "[VOXEL_SERVER]---------------------------------" << endl;
 
                     // visualize it.
                     //publishGrid(bdy, iRow);
                 }
-                clog << "[ inflated Path ]: \n" << inflated_path << endl;
+                clog << "[VOXEL_SERVER] inflated Path : \n" << inflated_path << endl;
 #endif
                 return inflated_path;
         }
@@ -290,10 +303,12 @@ public:
         int setWayPoints(
                 const vector<double> & p_s,
                 const vector<double> wp,
-                double init_T)
+                double init_T,
+                vector<double> & arr_time)
         {
             assert(p_s.size() == _TOT_DIM * 3);
             assert(wp.size() % _TOT_DIM == 0);
+            addMapBlock(vector<double>(0));
             
             int ret = _TRAJ_SUCC, n = wp.size() / _TOT_DIM, m = 0;
             
@@ -302,22 +317,23 @@ public:
 
             double p[2][_TOT_DIM] = {p_s[0], p_s[1], p_s[2], wp[0], wp[1], wp[2]};
 
+            // #1. search for the path & inflation
             for (int idx = 0; idx < n; ++idx)
             {
                 p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
                 p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
                 p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
+                ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
                 auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
                 if (edge_node.first.rows() == 0) 
                 {
-                    ROS_WARN("[TRAJ] Can't find a path.");
+                    ROS_WARN("[VOXEL_SERVER] Can't find a path.");
                     return -1;
                 }
                 vec_edge.push_back(edge_node.first);
                 vec_node.push_back(edge_node.second);
                 m += edge_node.second.cols();
             }
-            //clog << " the array of node and edge : " << vec_node.size()<< ", " << vec_edge.size() << endl;
 
             MatrixXd edge(m + 1, _TOT_BDY), node(m, _TOT_BDY);
 
@@ -339,10 +355,11 @@ public:
             path.block(1, 0, m, _TOT_BDY) << node;
             // set up the window
             path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
-            clog << "[ PATH ]: \n" << path << endl;
+            clog << "[VOXEL_SERVER] PATH : \n" << path << endl;
 
             inflated_path = getInflatedPath(path);
 
+            // #2. trajectory generation
             MatrixXd Vel(_TOT_DIM, 2);
             MatrixXd Acc(_TOT_DIM, 2);
 
@@ -352,7 +369,6 @@ public:
             Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
             Acc.col(1) << 0.0, 0.0, 0.0;
 
-            // generate the trajectory
             VoxelTrajectory::TrajectoryGenerator traj_gen;
             pair<MatrixXd, VectorXd> traj = 
                traj_gen.genPolyCoeffTime(path, inflated_path, 
@@ -370,18 +386,37 @@ public:
 
             hasTraj = true;
             
+            // record the important time
             nTraj   = T.rows();
 
             init_time = init_T;
+            final_time = init_T + T.sum();
 
-             // inflation rate
+            arr_time.clear();
+            double tmp_time = init_time;
+            for (size_t iRow = m + 1; iRow < m + m; ++iRow)
+            {
+                tmp_time += T(iRow - m - 1);
+                if (path(iRow, _BDY_X) - path(iRow, _BDY_x) < _eps_pos &&
+                    path(iRow, _BDY_Y) - path(iRow, _BDY_y) < _eps_pos &&
+                    path(iRow, _BDY_Z) - path(iRow, _BDY_z) < _eps_pos)
+                {
+                    arr_time.push_back(tmp_time);
+                }
+            }
+            arr_time.push_back(final_time);
+
+            // #3. scaling rate
             coeff_t = 1.0 / coeff_t;
             vector<double> state = getDesiredState(init_time);
             if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
 
-            clog << "coeff t = " << coeff_t << endl;
+            //clog << "coeff t = " << coeff_t << endl;
+            //state = getDesiredState(final_time);
+            //clog << "state : \n";
+            //for (int i = 0; i < 9; i++) clog << state[i] << ", ";
+            //clog << endl;
 
-           final_time = init_T + T.sum();
 
             return ret;
         }
@@ -389,11 +424,13 @@ public:
         int setPoints(
             const vector<double> & p_s,
             const vector<double> & p_t,
-            double init_T)
+            double init_T,
+            vector<double> & arr_time)
         {
             assert(p_s.size() == _TOT_DIM * 3);
             assert(p_t.size() == _TOT_DIM * 3);
             int ret = _TRAJ_SUCC;
+            addMapBlock(vector<double>(0));
 
             double p[2][3] = {p_s[0], p_s[1], p_s[2], p_t[0], p_t[1], p_t[2]};
 
@@ -463,6 +500,7 @@ public:
 
             init_time = init_T;
             final_time = init_T + T.sum();
+            arr_time.push_back(final_time);
 
             // inflation rate
             coeff_t = 1.0 / coeff_t;
