@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   quadrotor_msgs
   mavlink_message
+  laser_geometry
 )
 
 find_package(Eigen3 REQUIRED )
@@ -147,6 +148,8 @@ add_executable(trajectory_server_node src/trajectory_server_node.cpp)
 
 add_executable(test_limited_sensing_node src/test_limited_sensing_node.cpp)
 
+add_executable(body_tf src/body_tf.cpp)
+
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -186,6 +189,10 @@ add_executable(test_limited_sensing_node src/test_limited_sensing_node.cpp)
 #	ma27
 #	gfortran
 #)
+
+target_link_libraries(body_tf
+    ${catkin_LIBRARIES}
+)
 
 target_link_libraries(octomap_ voxelgraph_)
 

@@ -9,10 +9,14 @@
 #include "ros/ros.h"
 #include "ros/console.h"
 #include "tf/tf.h"
+
+#include "tf/transform_datatypes.h"
 //#include "pcl/io/pcd_io.h"
 //#include "pcl/point_types.h"
 // standard messages
 #include "sensor_msgs/PointCloud2.h"
+#include "sensor_msgs/PointCloud.h"
+#include "sensor_msgs/LaserScan.h"
 #include "geometry_msgs/Point.h"
 #include "nav_msgs/Odometry.h"
 #include "nav_msgs/Path.h"
@@ -21,6 +25,9 @@
 // desired states messages
 #include "quadrotor_msgs/PositionCommand.h"
 //#include "mavlink_message/PositionCommand.h"
+#include "laser_geometry/laser_geometry.h"
+
+
 
 using namespace std;
 
@@ -38,6 +45,7 @@ private:
     ros::Subscriber _odom_sub;
     ros::Subscriber _obs_pt_sub, _obs_blk_sub;
     ros::Subscriber _dest_pt_sub, _dest_pts_sub; 
+    ros::Subscriber _laser_sub;
 
     // publishers
     ros::Publisher _desired_state_pub;
@@ -48,6 +56,8 @@ private:
     ros::Publisher _path_vis_pub;
     ros::Publisher _inflated_path_vis_pub;
 
+    ros::Publisher _laser_vis_pub;
+
     // flags 
     bool _has_odom = false;
     bool _has_traj = false;
@@ -56,12 +66,12 @@ private:
 
     // configuration
     double _resolution = 0.4;        // unit - m^3
-    double _safe_margin = 0.4;       // unit - m
+    double _safe_margin = 0.1;       // unit - m
     double _max_acc = 1.0;           // unit - m/s
     double _max_vel = 1.0;           // unit - m/(s^2)
 
     // trajectory
-    uint32_t _traj_id = 0;
+    uint32_t _traj_id = 1;
     uint8_t _traj_status = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_EMPTY;
     vector<double> _waypoints;
     vector<double> _arr_time;
@@ -78,6 +88,8 @@ private:
     visualization_msgs::MarkerArray _path_vis, _inflated_path_vis;
     sensor_msgs::PointCloud2 _map_vis;
     sensor_msgs::PointCloud2 _check_point_vis;
+    sensor_msgs::LaserScan _laser_scan;
+
 
 public:
 
@@ -92,6 +104,8 @@ public:
             handle.subscribe("obstacle_points", 2, &NodeServer::addObstaclePoints, this);
         _obs_blk_sub = 
             handle.subscribe("obstacle_blocks", 2, &NodeServer::addObstacleBlocks, this);
+        _laser_sub = 
+            handle.subscribe("laser_scan", 5, &NodeServer::addLaserScan, this);
 
         // set destination
         _dest_pt_sub = 
@@ -115,10 +129,12 @@ public:
             handle.advertise<visualization_msgs::Marker>("trajectory_vis", 2);
         _check_point_vis_pub =
             handle.advertise<sensor_msgs::PointCloud2>("checkpoints_vis", 2);
+        _laser_vis_pub = 
+            handle.advertise<visualization_msgs::Marker>("laser_points_vis", 2);
 
     }
 
-    void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.4, 
+    void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.1, 
             double max_vel = 1.0, double max_acc = 1.0)
     {
         _core->setMapBoundary(bdy);
@@ -323,6 +339,117 @@ public:
         }
         _core->addMapBlock(blk);
 
+        checkHalfWay();
+
+        visMap();
+    }
+
+    void addLaserScan(const sensor_msgs::LaserScan & scan)
+    {
+        ROS_WARN("[TRAJ_SERVER] scan received.");
+        if (!_has_map) return ;
+#if 1
+        sensor_msgs::PointCloud cloud;
+        laser_geometry::LaserProjection projector;
+        projector.projectLaser(scan, cloud);
+        // prepare the transform matrix
+        Eigen::Quaterniond quad(
+                _odom.pose.pose.orientation.w,
+                _odom.pose.pose.orientation.x,
+                _odom.pose.pose.orientation.y,
+                _odom.pose.pose.orientation.z);
+        auto rotate = quad.toRotationMatrix();
+
+        Eigen::Vector3d trans(
+                _odom.pose.pose.position.x,
+                _odom.pose.pose.position.y,
+                _odom.pose.pose.position.z);
+
+        ROS_WARN("[QUAD] %lf, %lf, %lf, %lf", quad.w(), quad.x(), quad.y(), quad.z());
+        ROS_WARN("[TRAN] %lf, %lf, %lf", trans.x(), trans.y(), trans.z());
+
+        // get the local coordinate & store in Eigen vector
+        vector<double> blk;
+        blk.reserve(scan.ranges.size() * _TOT_BDY);
+        _safe_margin = 1e-7;
+
+
+        visualization_msgs::Marker mk;
+        mk.ns = "laser_points";
+        mk.header.stamp = scan.header.stamp;
+        mk.header.frame_id = "map";
+        mk.type = visualization_msgs::Marker::CUBE_LIST;
+        mk.action = visualization_msgs::Marker::ADD;
+        mk.color.b = 1.0;
+        mk.color.g = 0.0;
+        mk.color.r = 0.0;
+        mk.color.a = 1.0;
+        mk.scale.x = 0.1;
+        mk.scale.y = 0.1;
+        mk.scale.z = 0.1;
+        mk.pose.orientation.w = 1.0;
+        mk.pose.orientation.x = 0.0;
+        mk.pose.orientation.y = 0.0;
+        mk.pose.orientation.z = 0.0;
+        mk.pose.position.x = 0.0;
+        mk.pose.position.y = 0.0;
+        mk.pose.position.z = 0.0;
+        mk.points.reserve(scan.ranges.size());
+
+        for (auto lp: cloud.points)
+        {
+            auto pt = rotate * Eigen::Vector3d(lp.x, lp.y, lp.z) + trans;
+
+            geometry_msgs::Point vis_pt;
+            vis_pt.x = pt(_DIM_x);
+            vis_pt.y = pt(_DIM_y);
+            vis_pt.z = pt(_DIM_z);
+            mk.points.push_back(vis_pt); 
+
+            blk.push_back(pt(_DIM_x) - _safe_margin);
+            blk.push_back(pt(_DIM_x) + _safe_margin);
+            blk.push_back(pt(_DIM_y) - _safe_margin);
+            blk.push_back(pt(_DIM_y) + _safe_margin);
+            blk.push_back(pt(_DIM_z) - _safe_margin);
+            blk.push_back(pt(_DIM_z) + _safe_margin);
+        }
+        _laser_vis_pub.publish(mk);
+        _core->addMapBlock(blk);
+#else
+        sensor_msgs::PointCloud cloud;
+        tf::Transform tf;
+        static laser_geometry::LaserProjection projector;
+
+        tf.setOrigin(tf::Vector3(
+                    _odom.pose.pose.position.x,
+                    _odom.pose.pose.position.y,
+                    _odom.pose.pose.position.z));
+
+        tf.setRotation(tf::Quaternion(
+                    _odom.pose.pose.orientation.x,
+                    _odom.pose.pose.orientation.y,
+                    _odom.pose.pose.orientation.z,
+                    _odom.pose.pose.orientation.w));
+
+        tf::Transformer tfer;
+        tfer.setTransform(tf::StampedTransform(tf, scan.header.stamp, "body", "map"));
+
+        ROS_WARN("[LASER] go to tranform.");
+        projector.transformLaserScanToPointCloud("map", scan, cloud, tfer);
+        ROS_WARN("[LASER] transform done.");
+        vector<double> blk;
+        blk.reserve(cloud.points.size() * _TOT_BDY);
+        for (auto pt: cloud.points)
+        {
+            blk.push_back(pt.x - _safe_margin);
+            blk.push_back(pt.x + _safe_margin);
+            blk.push_back(pt.x - _safe_margin);
+            blk.push_back(pt.x + _safe_margin);
+            blk.push_back(pt.x - _safe_margin);
+            blk.push_back(pt.x + _safe_margin);
+        }
+        _core->addMapBlock(blk);
+#endif
         checkHalfWay();
 
         visMap();
