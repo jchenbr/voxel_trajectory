@@ -41,7 +41,7 @@ namespace VoxelTrajectory
 
         if (son == NULL)
         {
-            memset(this->son, 0, sizeof(this->bdy));
+            memset(this->son, 0, sizeof(this->son));
         }
         else
         {
@@ -239,7 +239,7 @@ namespace VoxelTrajectory
 
     void OctoMap::insertPoints(const vector<double> & pt)
     {
-        assert(pt % _TOT_DIM == 0);
+        assert(pt.size() % _TOT_DIM == 0);
         
         log.clear();
 
@@ -291,7 +291,7 @@ namespace VoxelTrajectory
 
     void OctoMap::insertBlocks(const vector<double> & blk)
     {
-        assert(blk % _TOT_BDY == 0);
+        assert(blk.size() % _TOT_BDY == 0);
 
         log.clear();
 

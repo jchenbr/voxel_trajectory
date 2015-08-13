@@ -1,0 +1,50 @@
+<launch>
+
+    <param name	= "test_mode" value = "4"/>
+    <param name	= "/random_forest/tot_num" value = "80"/>
+
+    <param name	= "/random_forest/h_mean" value = "7"/>
+    <param name	= "/random_forest/h_var" value = "1"/>
+
+    <param name	= "/random_forest/r_mean" value = "0.2"/>
+    <param name	= "/random_forest/r_var" value = "0.2"/>
+
+    <param name	= "/random_forest/H_mean" value = "2"/>
+    <param name	= "/random_forest/H_var" value = "0.5"/>
+
+    <param name	= "/random_forest/W_mean" value = "3"/>
+    <param name	= "/random_forest/W_var" value = "0.5"/>
+
+
+    <node
+      pkg     = "voxel_trajectory"
+      type    = "mission_commander_node"
+      output  = "screen"
+      name    = "mission_commander">
+    </node>
+
+    <node 
+ 	    pkg 	= "voxel_trajectory"
+	    type 	= "test_limited_sensing_node"
+ 	    name 	= "limited_sensor"
+	    output  = "screen">
+        <param  name = "limited_sensing/sensing_raduis"     value = "3.0"/>
+        <param  name = "limited_sensing/sensing_resolution" value = "0.1"/>
+        <param  name = "limited_sensing/sensing_rate"       value = "5"/>
+<!--
+        <param  name = "limited_sensing/obstacle_file"
+                    value = "$(find voxel_trajectory)/data/test_case_2/obstacle.txt" />
+-->
+        <remap  from = "~odometry"              to = "/state_ukf/odom" />
+        <remap  from = "~sensed_points"         to = "~sensed_points"/>
+	<remap  from = "~obstacle_points"       to = "~obstacle_points"/>
+	<remap  from = "~obstacle_blocks"       to = "/trajectory_generator/obstacle_blocks"/>
+    </node>
+
+<!--
+    <include file="$(find voxel_trajectory)/launch/sep_traj.launch"/>
+    <include file="$(find voxel_trajectory)/launch/sep_quadrotor.launch"/>
+-->
+    <include file="$(find voxel_trajectory)/launch/sep_vis.launch"/>
+
+</launch>

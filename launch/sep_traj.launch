@@ -1,0 +1,56 @@
+<launch>
+
+    <param  name = "map_x_lower_bound"  value = "-20.0"/>
+    <param  name = "map_x_upper_bound"  value = "20.0"/>
+    <param  name = "map_y_lower_bound"  value = "-20.0"/>
+    <param  name = "map_y_upper_bound"  value = "20.0"/>
+    <param  name = "map_z_lower_bound"  value = "0.0"/>
+    <param  name = "map_z_upper_bound"  value = "40.0"/>
+
+    <param  name = "init/signal" value = "true"/>
+    <param  name = "init/pos/x"  value = "0.0"/>
+    <param  name = "init/pos/y"  value = "0.0"/>
+    <param  name = "init/pos/z"  value = "1.0"/>
+    <param  name = "/voxel/resolution"  value = "0.008"/>
+    <param  name = "/voxel/maxVelocity"  value = "8.0"/>
+    <param  name = "/voxel/maxAccleration"  value = "1.5"/>
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "trajectory_server_node"
+        output  = "screen"
+        name    = "trajectory_generator">
+
+        <param  name = "init/visualization" value = "true"/>
+
+        <param  name = "map/boundary/lower_x"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_x"  value = "20.0"/>
+        <param  name = "map/boundary/lower_y"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_y"  value = "20.0"/>
+        <param  name = "map/boundary/lower_z"  value = "0.0"/>
+        <param  name = "map/boundary/upper_z"  value = "40.0"/>
+        <param  name = "map/resolution"  value = "0.008"/>
+
+        <param  name = "max_velocity"  value = "3.0"/>
+        <param  name = "max_acceleration"  value = "3.0"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~obstacle_points"   to = "/limited_sensor/sensed_points"/>
+        <remap  from = "~obstacle_blocks"   to = "~obstacle_blocks_baned"/>
+        <remap  from = "~laser_scan"        to = "/scan"/>
+        <remap  from = "~odometry"          to = "/state_ukf/odom"/>
+        <remap  from = "~goal_point"        to = "~goal_point"/>
+        <remap  from = "~waypoints"         to = "/waypoint_generator/waypoints"/>
+
+        <!-- advertised topics -->
+        <remap  from = "~desired_state"     to = "/position_cmd"/>
+
+        <!-- advertised visualization topics -->
+        <remap  from = "~map_vis"           to = "/trajectory_generator/map_points"/>
+        <remap  from = "~trajectory_vis"    to = "/trajectory_generator/line_strip"/>
+        <remap  from = "~path_vis"          to = "/trajectory_generator/voxel_path"/>
+        <remap  from = "~inflated_path_vis" to = "/trajectory_generator/inflated_path"/>
+        <remap  from = "~checkpoints_vis"   to = "/trajectory_generator/check_point"/>
+    </node>
+
+</launch>

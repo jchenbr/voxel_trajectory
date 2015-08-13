@@ -27,6 +27,10 @@
 //#include "mavlink_message/PositionCommand.h"
 #include "laser_geometry/laser_geometry.h"
 
+#include <vector>
+#include <set>
+#include <deque>
+
 
 
 using namespace std;
@@ -70,11 +74,18 @@ private:
     double _max_acc = 1.0;           // unit - m/s
     double _max_vel = 1.0;           // unit - m/(s^2)
 
+    double _extra_obstacle_height = 0.0;
+    double _allowed_ground_height = 0.3;
+    double _flight_height_limit = 100.0;
+
     // trajectory
     uint32_t _traj_id = 1;
     uint8_t _traj_status = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_EMPTY;
     vector<double> _waypoints;
     vector<double> _arr_time;
+
+    const size_t _odom_queue_size = 200;
+    deque<nav_msgs::Odometry> _odom_queue;
 
     // input messages
     nav_msgs::Odometry _odom;
@@ -97,21 +108,21 @@ public:
     {
         // subscribe odometry
         _odom_sub = 
-            handle.subscribe("odometry", 50, &NodeServer::odometryCallback, this);
+            handle.subscribe("odometry", 50, &NodeServer::rcvOdometryCallbck, this);
 
         // add obstacle
         _obs_pt_sub =
-            handle.subscribe("obstacle_points", 2, &NodeServer::addObstaclePoints, this);
+            handle.subscribe("obstacle_points", 2, &NodeServer::rcvGlobalPointCloudCallback, this);
         _obs_blk_sub = 
-            handle.subscribe("obstacle_blocks", 2, &NodeServer::addObstacleBlocks, this);
+            handle.subscribe("obstacle_blocks", 2, &NodeServer::rcvGlobalBlocksCloudCallback, this);
         _laser_sub = 
-            handle.subscribe("laser_scan", 5, &NodeServer::addLaserScan, this);
+            handle.subscribe("laser_scan", 5, &NodeServer::rcvLaserScanCallback, this);
 
         // set destination
         _dest_pt_sub = 
-            handle.subscribe("goal_point", 2, &NodeServer::setDestination, this);
+            handle.subscribe("goal_point", 2, &NodeServer::rcvDestinationCallback, this);
         _dest_pts_sub = 
-            handle.subscribe("waypoints", 2, &NodeServer::setDestinationWaypoints, this);
+            handle.subscribe("waypoints", 2, &NodeServer::rcvWaypointsCallback, this);
 
         // publish desired state
         _desired_state_pub = 
@@ -233,14 +244,17 @@ public:
        }
     }
 
-    void odometryCallback(const nav_msgs::Odometry odom)
+    void rcvOdometryCallbck(const nav_msgs::Odometry odom)
     {
+        if (odom.child_frame_id == "odom-x" || odom.child_frame_id == "odom-o") return ;
         _odom = odom;
         _has_odom = true;
         //ROS_INFO("[TRAJ] Received odometry message. now at : [%.3lf %.3lf %.3lf]",
         //        odom.pose.pose.position.x,
         //        odom.pose.pose.position.y,
         //        odom.pose.pose.position.z);
+        _odom_queue.push_back(odom);
+        while (_odom_queue.size() > _odom_queue_size) _odom_queue.pop_front();
         
         publishDesiredState();
     }
@@ -248,7 +262,7 @@ public:
     void checkHalfWay()
     {
         //ROS_INFO("[TRAJ] Checking halfway obstacle!!");
-        if (_odom.header.stamp < _final_time && _core->checkHalfWayObstacle_BrutalForce())
+        if (_has_traj && _odom.header.stamp < _final_time && _core->checkHalfWayObstacle_BrutalForce())
         {
 #if 0
             ROS_INFO("[TRAJ] Replan. Will set up %lu waypoint(s).", _waypoints.size());
@@ -292,12 +306,12 @@ public:
                 path.poses[idx - vaild_id].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
             }
 
-            setDestinationWaypoints(path);
+            rcvWaypointsCallback(path);
         }
         //ROS_INFO("[TRAJ] HALF_WAY_CHECK DONE!!");
     }
 
-    void addObstaclePoints(const sensor_msgs::PointCloud2 & cloud)
+    void rcvGlobalPointCloudCallback(const sensor_msgs::PointCloud2 & cloud)
     {
         if (!_has_map) return ;
 
@@ -321,7 +335,7 @@ public:
         visMap();
     }
 
-    void addObstacleBlocks(const sensor_msgs::PointCloud2 & cloud)
+    void rcvGlobalBlocksCloudCallback(const sensor_msgs::PointCloud2 & cloud)
     {
         if (!_has_map) return ;
 
@@ -344,36 +358,49 @@ public:
         visMap();
     }
 
-    void addLaserScan(const sensor_msgs::LaserScan & scan)
+    void rcvLaserScanCallback(const sensor_msgs::LaserScan & scan)
     {
-        ROS_WARN("[TRAJ_SERVER] scan received.");
+        if (_odom_queue.empty()) return;
+
+        for (auto & odom: _odom_queue)
+        {
+            if (odom.header.stamp > scan.header.stamp) 
+            {
+                insertLaserScan(scan, odom);       
+                return ;
+            }
+        }
+        insertLaserScan(scan, _odom_queue.back());
+    }
+
+    void insertLaserScan(
+            const sensor_msgs::LaserScan & scan, 
+            const nav_msgs::Odometry & odom)
+    {
         if (!_has_map) return ;
-#if 1
+
         sensor_msgs::PointCloud cloud;
         laser_geometry::LaserProjection projector;
         projector.projectLaser(scan, cloud);
+
         // prepare the transform matrix
         Eigen::Quaterniond quad(
-                _odom.pose.pose.orientation.w,
-                _odom.pose.pose.orientation.x,
-                _odom.pose.pose.orientation.y,
-                _odom.pose.pose.orientation.z);
+                odom.pose.pose.orientation.w,
+                odom.pose.pose.orientation.x,
+                odom.pose.pose.orientation.y,
+                odom.pose.pose.orientation.z);
         auto rotate = quad.toRotationMatrix();
 
         Eigen::Vector3d trans(
-                _odom.pose.pose.position.x,
-                _odom.pose.pose.position.y,
-                _odom.pose.pose.position.z);
-
-        ROS_WARN("[QUAD] %lf, %lf, %lf, %lf", quad.w(), quad.x(), quad.y(), quad.z());
-        ROS_WARN("[TRAN] %lf, %lf, %lf", trans.x(), trans.y(), trans.z());
+                odom.pose.pose.position.x,
+                odom.pose.pose.position.y,
+                odom.pose.pose.position.z);
 
         // get the local coordinate & store in Eigen vector
         vector<double> blk;
         blk.reserve(scan.ranges.size() * _TOT_BDY);
-        _safe_margin = 1e-7;
 
-
+#if 0
         visualization_msgs::Marker mk;
         mk.ns = "laser_points";
         mk.header.stamp = scan.header.stamp;
@@ -395,6 +422,7 @@ public:
         mk.pose.position.y = 0.0;
         mk.pose.position.z = 0.0;
         mk.points.reserve(scan.ranges.size());
+#endif
 
         for (auto lp: cloud.points)
         {
@@ -404,7 +432,106 @@ public:
             vis_pt.x = pt(_DIM_x);
             vis_pt.y = pt(_DIM_y);
             vis_pt.z = pt(_DIM_z);
-            mk.points.push_back(vis_pt); 
+            //mk.points.push_back(vis_pt); 
+
+            blk.push_back(pt(_DIM_x) - _safe_margin);
+            blk.push_back(pt(_DIM_x) + _safe_margin);
+            blk.push_back(pt(_DIM_y) - _safe_margin);
+            blk.push_back(pt(_DIM_y) + _safe_margin);
+
+            if (pt(_DIM_z) < _allowed_ground_height)
+            {
+                blk.push_back(pt(_DIM_z) - _safe_margin);
+                blk.push_back(pt(_DIM_z) + _safe_margin);
+            }
+            else
+            {
+                blk.push_back(pt(_DIM_z) - _safe_margin - _extra_obstacle_height);
+                blk.push_back(pt(_DIM_z) + _safe_margin + _extra_obstacle_height);
+            }
+        }
+        //_laser_vis_pub.publish(mk);
+        _core->addMapBlock(blk);
+
+        checkHalfWay();
+
+        visMap();
+    }
+
+    void rcvLocalPointCloud(const sensor_msgs::PointCloud2 cloud)
+    {
+        if (_odom_queue.empty()) return ;
+        for (auto & odom: _odom_queue)
+        {
+            if (odom.header.stamp > cloud.header.stamp)
+            {
+                insertBodyPointCloud(cloud, odom);
+                return ;
+            }
+        }
+        insertBodyPointCloud(cloud, _odom_queue.back());
+    }
+
+    void insertBodyPointCloud(
+            const sensor_msgs::PointCloud2 & cloud, 
+            const nav_msgs::Odometry & odom)
+    {
+        if (!_has_map) return ;
+
+        // prepare the transform matrix
+        Eigen::Quaterniond quad(
+                odom.pose.pose.orientation.w,
+                odom.pose.pose.orientation.x,
+                odom.pose.pose.orientation.y,
+                odom.pose.pose.orientation.z);
+        auto rotate = quad.toRotationMatrix();
+
+        Eigen::Vector3d trans(
+                odom.pose.pose.position.x,
+                odom.pose.pose.position.y,
+                odom.pose.pose.position.z);
+
+        // get the local coordinate & store in Eigen vector
+        vector<double> blk;
+        blk.reserve(cloud.width * _TOT_BDY);
+
+#if 0
+        visualization_msgs::Marker mk;
+        mk.ns = "laser_points";
+        mk.header.stamp = scan.header.stamp;
+        mk.header.frame_id = "map";
+        mk.type = visualization_msgs::Marker::CUBE_LIST;
+        mk.action = visualization_msgs::Marker::ADD;
+        mk.color.b = 1.0;
+        mk.color.g = 0.0;
+        mk.color.r = 0.0;
+        mk.color.a = 1.0;
+        mk.scale.x = 0.1;
+        mk.scale.y = 0.1;
+        mk.scale.z = 0.1;
+        mk.pose.orientation.w = 1.0;
+        mk.pose.orientation.x = 0.0;
+        mk.pose.orientation.y = 0.0;
+        mk.pose.orientation.z = 0.0;
+        mk.pose.position.x = 0.0;
+        mk.pose.position.y = 0.0;
+        mk.pose.position.z = 0.0;
+        mk.points.reserve(scan.ranges.size());
+#endif
+        const float * pts = reinterpret_cast<const float *>(cloud.data.data());
+
+        for (size_t idx = 0; idx < cloud.width; ++idx)
+        {
+            auto pt = trans + rotate * Eigen::Vector3d(
+                    pts[idx * _TOT_DIM + _DIM_x],
+                    pts[idx * _TOT_DIM + _DIM_y],
+                    pts[idx * _TOT_DIM + _DIM_z]);
+
+            geometry_msgs::Point vis_pt;
+            vis_pt.x = pt(_DIM_x);
+            vis_pt.y = pt(_DIM_y);
+            vis_pt.z = pt(_DIM_z);
+            //mk.points.push_back(vis_pt); 
 
             blk.push_back(pt(_DIM_x) - _safe_margin);
             blk.push_back(pt(_DIM_x) + _safe_margin);
@@ -413,49 +540,14 @@ public:
             blk.push_back(pt(_DIM_z) - _safe_margin);
             blk.push_back(pt(_DIM_z) + _safe_margin);
         }
-        _laser_vis_pub.publish(mk);
+        //_laser_vis_pub.publish(mk);
         _core->addMapBlock(blk);
-#else
-        sensor_msgs::PointCloud cloud;
-        tf::Transform tf;
-        static laser_geometry::LaserProjection projector;
 
-        tf.setOrigin(tf::Vector3(
-                    _odom.pose.pose.position.x,
-                    _odom.pose.pose.position.y,
-                    _odom.pose.pose.position.z));
-
-        tf.setRotation(tf::Quaternion(
-                    _odom.pose.pose.orientation.x,
-                    _odom.pose.pose.orientation.y,
-                    _odom.pose.pose.orientation.z,
-                    _odom.pose.pose.orientation.w));
-
-        tf::Transformer tfer;
-        tfer.setTransform(tf::StampedTransform(tf, scan.header.stamp, "body", "map"));
-
-        ROS_WARN("[LASER] go to tranform.");
-        projector.transformLaserScanToPointCloud("map", scan, cloud, tfer);
-        ROS_WARN("[LASER] transform done.");
-        vector<double> blk;
-        blk.reserve(cloud.points.size() * _TOT_BDY);
-        for (auto pt: cloud.points)
-        {
-            blk.push_back(pt.x - _safe_margin);
-            blk.push_back(pt.x + _safe_margin);
-            blk.push_back(pt.x - _safe_margin);
-            blk.push_back(pt.x + _safe_margin);
-            blk.push_back(pt.x - _safe_margin);
-            blk.push_back(pt.x + _safe_margin);
-        }
-        _core->addMapBlock(blk);
-#endif
         checkHalfWay();
-
         visMap();
     }
 
-    void setDestination(const geometry_msgs::Point & pt)
+    void rcvDestinationCallback(const geometry_msgs::Point & pt)
     {
         if (!_has_map) return ;
         _pos_cmd.trajectory_id = ++_traj_id;
@@ -502,7 +594,7 @@ public:
         ROS_INFO("[TRAJ] Checkpoints visualzation finished.");
     }
 
-    void setDestinationWaypoints(const nav_msgs::Path & wp)
+    void rcvWaypointsCallback(const nav_msgs::Path & wp)
     {
         if (!_has_map) return ;
         _pos_cmd.trajectory_id = ++_traj_id;
@@ -593,7 +685,7 @@ public:
         _map_vis.header.stamp = _odom.header.stamp;
 
         _map_vis.height = 1;
-        _map_vis.width = pt.size() / 3;
+        _map_vis.width = pt.size() / _TOT_DIM;
         _map_vis.is_bigendian = false;
         _map_vis.is_dense = true;
 
@@ -607,7 +699,7 @@ public:
         {
             field.name = f_name[idx];
             field.offset = idx * 4;
-            field.datatype = 7;
+            field.datatype = sensor_msgs::PointField::FLOAT32;
             field.count = 1;
             _map_vis.fields[idx] = field;
         }
@@ -758,7 +850,7 @@ public:
         mk.color.g = 0.0;
         mk.color.b = 1.0;
 
-        for (size_t idx = 1; idx <= M; ++idx)
+        for (size_t idx = 0; idx < M; ++idx)
         {
             mk.id = idx;
             mk.pose.position.x = (path(idx, _BDY_x) + path(idx, _BDY_X)) * 0.5;
@@ -812,6 +904,25 @@ public:
 
         _check_point_vis_pub.publish(_check_point_vis);
     }
+
+    void set2DLaserDataSetting(double extra_height, double ground_height)
+    {
+        _extra_obstacle_height = extra_height;
+        _allowed_ground_height = ground_height;
+    }
+
+    void setFlightHeightLimit(double height_limit)
+    {
+        if (!_has_map) return ;
+
+        _flight_height_limit = height_limit;
+
+        vector<double> blk = {
+            -1e5, 1e5,
+            -1e5, 1e5,
+            height_limit, height_limit + 1e-7};
+        _core->addMapBlock(blk);
+    }
 };
 
 int main(int argc, char ** argv)
@@ -824,6 +935,9 @@ int main(int argc, char ** argv)
     bool is_vis;
     double bdy[_TOT_BDY], resolution, safe_margin;
     double max_vel, max_acc;
+    double flight_height_limit;
+    double extra_obstacle_heigt;
+    double allowed_ground_height;
 
     handle.param("flag/visualization", is_vis, true);
     handle.param("map/boundary/lower_x", bdy[_BDY_x], -100.0);
@@ -836,10 +950,15 @@ int main(int argc, char ** argv)
     handle.param("map/safe_margin", safe_margin, 0.3);
     handle.param("max_velocity", max_vel, 1.0);
     handle.param("max_acceleration", max_acc, 1.0);
+    handle.param("setting/flight_height_limit", flight_height_limit, -1e7);
+    handle.param("setting/extra_obstacle_height", extra_obstacle_heigt, 0.0);
+    handle.param("setting/allowed_ground_height", allowed_ground_height, 1e7);
 
 
     ROS_INFO("[TRAJ] vel = %.3lf acc = %.3lf", max_vel, max_acc);
     server.buildMap(bdy, resolution, safe_margin, max_vel, max_acc);
+    server.setFlightHeightLimit(flight_height_limit);
+    server.set2DLaserDataSetting(extra_obstacle_heigt, allowed_ground_height);
 
     if (is_vis) 
         server.enableVisualization();

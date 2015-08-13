@@ -17,7 +17,7 @@
 #include <eigen3/Eigen/Sparse>
 
 #define _TRAJ_USE_SPACE__
-//#define _TRAJ_USE_INFLATION_
+//#define _TRAJ_USE_NO_INFLATION_
 
 #include <ooqp/QpGenData.h>
 #include <ooqp/QpGenVars.h>
@@ -40,7 +40,7 @@ const static double _EPS  = 1e-7;
 const static int _N_LOOP   = 10;
 const static int _DER_MIN  =   3;
 const static bool _CHECK_EX   = true;
-const static double _MARGIN_EX = 0.002;
+const static double _MARGIN_EX = 0.02;
 const static double _SAFE_RATE  = 0.05;
 const static double _PLAN_RATE  = 1.0;
 const static double _LIM_RATE   = 1.0;
@@ -313,7 +313,7 @@ namespace VoxelTrajectory
 
         t_[0] = 1.0;
 
-        for (int i=1; i < N + N; i++)
+        for (int i = 1; i < N + N; i++)
             t_[i] = t_[i - 1] * t;
 
         for (int i = _DER_MIN; i < N ;i++)
@@ -1260,7 +1260,7 @@ static int _error_code = 0;
             getConstrainsEndpoints(T, B_ori, E, p_s, p_t, vel, acc);
         //clog << "2. Endpoints." << endl;
         // Corridors
-#ifdef _TRAJ_USE_INFLATION_
+#ifdef _TRAJ_USE_NO_INFLATION_
         pair<pair<SMatrixXd, VectorXd>, pair<SMatrixXd, VectorXd> > CE_CI_1 = 
             getConstrainsCorridors(T , B, E);
 #else
@@ -1411,7 +1411,7 @@ static int _error_code = 0;
         const double maxAcc,
         double & coeff_t) 
     {
-        assert(PBE.cols() == _TOT_BDY && inflated_path == _TOT_BDY);
+        assert(PBE.cols() == _TOT_BDY && inflated_path.cols() == _TOT_BDY);
         assert(vel.rows() == _TOT_DIM && vel.cols() == 2);
         assert(acc.rows() == _TOT_DIM && acc.cols() == 2);
 
@@ -1431,7 +1431,7 @@ static int _error_code = 0;
         //clog<<"T:" <<T<<endl;
         // generate the coeff for polynomial traj
         //swap(B, B_);
-#ifdef _TRAJ_USE_INFLATION_
+#ifdef _TRAJ_USE_NO_INFLATION_
         P   = getTrajCoeff(p_s, p_t, B, B, E, T, vel, acc, coeff_t); 
         coeff_t = 1.0;
 #else
