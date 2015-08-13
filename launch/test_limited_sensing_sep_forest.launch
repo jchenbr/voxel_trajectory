@@ -31,6 +31,11 @@
         <param  name = "limited_sensing/sensing_raduis"     value = "3.0"/>
         <param  name = "limited_sensing/sensing_resolution" value = "0.1"/>
         <param  name = "limited_sensing/sensing_rate"       value = "5"/>
+
+
+        <param  name = "setting/flight_height_limit" value = "2.5"/>
+        <param  name = "setting/extra_obstacle_height" value = "2.5"/>
+        <param  name = "setting/allowed_ground_height" value = "0.3"/>
 <!--
         <param  name = "limited_sensing/obstacle_file"
                     value = "$(find voxel_trajectory)/data/test_case_2/obstacle.txt" />
