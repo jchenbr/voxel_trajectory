@@ -246,7 +246,7 @@ public:
 
     void rcvOdometryCallbck(const nav_msgs::Odometry odom)
     {
-        if (odom.child_frame_id == "odom-x" || odom.child_frame_id == "odom-o") return ;
+        if (odom.child_frame_id == "X" || odom.child_frame_id == "O") return ;
         _odom = odom;
         _has_odom = true;
         //ROS_INFO("[TRAJ] Received odometry message. now at : [%.3lf %.3lf %.3lf]",
