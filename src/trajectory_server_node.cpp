@@ -332,7 +332,7 @@ public:
 
         checkHalfWay();
 
-        visMap();
+        //visMap();
     }
 
     void rcvGlobalBlocksCloudCallback(const sensor_msgs::PointCloud2 & cloud)
@@ -355,7 +355,7 @@ public:
 
         checkHalfWay();
 
-        visMap();
+        //visMap();
     }
 
     void rcvLaserScanCallback(const sensor_msgs::LaserScan & scan)
@@ -455,7 +455,7 @@ public:
 
         checkHalfWay();
 
-        visMap();
+        //visMap();
     }
 
     void rcvLocalPointCloud(const sensor_msgs::PointCloud2 cloud)
@@ -975,3 +975,4 @@ int main(int argc, char ** argv)
     ros::spin();
     return 0;
 }
+
