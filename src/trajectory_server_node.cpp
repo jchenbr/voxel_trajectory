@@ -544,7 +544,7 @@ public:
         _core->addMapBlock(blk);
 
         checkHalfWay();
-        visMap();
+        //visMap();
     }
 
     void rcvDestinationCallback(const geometry_msgs::Point & pt)
@@ -964,6 +964,13 @@ int main(int argc, char ** argv)
         server.enableVisualization();
     else
         server.disableVisualization();
+
+    ros::Rate work_rate(1.0);
+    while (ros::ok())
+    {
+        server.visMap();
+        work_rate.sleep();
+    }
 
     ros::spin();
     return 0;
