@@ -100,6 +100,13 @@ private:
     sensor_msgs::PointCloud2 _map_vis;
     sensor_msgs::PointCloud2 _check_point_vis;
     sensor_msgs::LaserScan _laser_scan;
+    
+    // otheros
+    ros::Timer _vis_map_timer;
+
+    ros::Time _last_scan_stamp;
+    double _laser_scan_step = 0.2;
+    double _laser_scan_resolution = 0.05;
 
 
 public:
@@ -143,6 +150,12 @@ public:
         _laser_vis_pub = 
             handle.advertise<visualization_msgs::Marker>("laser_points_vis", 2);
 
+        // others
+        _vis_map_timer = 
+            handle.createTimer(ros::Duration(1.0), &NodeServer::visMap, this);
+
+        _last_scan_stamp = ros::TIME_MIN;
+
     }
 
     void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.1, 
@@ -173,7 +186,9 @@ public:
 
     void publishDesiredState()
     {
+       ROS_WARN("[TRAJ_SERVER] BEFORE go to publish desired state!");
        if (!_has_odom) return ; 
+       ROS_WARN("[TRAJ_SERVER] go to publish desired state!");
        // to do : get the desired state from the _core
        if (_has_traj)
        {
@@ -239,8 +254,8 @@ public:
            }
 
            _desired_state_pub.publish(_pos_cmd);
-           //ROS_INFO("[TRAJ] Published desired states, at [%.3lf %.3lf %.3lf]", 
-           //        _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z);
+           ROS_INFO("[TRAJ] Published desired states, at [%.3lf %.3lf %.3lf]", 
+                  _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z);
        }
     }
 
@@ -332,7 +347,7 @@ public:
 
         checkHalfWay();
 
-        //visMap();
+        // visMap();
     }
 
     void rcvGlobalBlocksCloudCallback(const sensor_msgs::PointCloud2 & cloud)
@@ -355,12 +370,14 @@ public:
 
         checkHalfWay();
 
-        //visMap();
+        // visMap();
     }
 
     void rcvLaserScanCallback(const sensor_msgs::LaserScan & scan)
     {
         if (_odom_queue.empty()) return;
+        if (scan.header.stamp - _last_scan_stamp < ros::Duration(_laser_scan_step)) return ;
+        _last_scan_stamp = scan.header.stamp;
 
         for (auto & odom: _odom_queue)
         {
@@ -424,9 +441,21 @@ public:
         mk.points.reserve(scan.ranges.size());
 #endif
 
+        bool _is_first_pt = true;
+        Eigen::Vector3d _last_pt;
         for (auto lp: cloud.points)
         {
             auto pt = rotate * Eigen::Vector3d(lp.x, lp.y, lp.z) + trans;
+
+            if (_is_first_pt)
+            {
+                _is_first_pt = false;
+            }
+            else
+            {
+                if ((pt - _last_pt).norm() < _laser_scan_resolution) continue;
+            }
+            _last_pt = pt;
 
             geometry_msgs::Point vis_pt;
             vis_pt.x = pt(_DIM_x);
@@ -455,7 +484,7 @@ public:
 
         checkHalfWay();
 
-        //visMap();
+        // visMap();
     }
 
     void rcvLocalPointCloud(const sensor_msgs::PointCloud2 cloud)
@@ -663,7 +692,7 @@ public:
         _is_vis = true;
     }
 
-    void visMap()
+    void visMap(const ros::TimerEvent& evt)
     {
         //ROS_INFO("[TRAJ] Map visualization start... flag : is_vis = %d, has_map = %d",
                // _is_vis, _has_map);
@@ -712,12 +741,6 @@ public:
             _map_vis.data.push_back(pt_int[idx]);
         }
 
-        ros::Rate loop_rate(1);
-        for (int i = 1; i < 3; i++) 
-        {
-            if (_map_vis_pub.getNumSubscribers() > 0) break;
-            loop_rate.sleep();
-        }
         _map_vis_pub.publish(_map_vis);
         ROS_INFO("[TRAJ] Map visualization finished. Total number of points : %d.", 
                 _map_vis.point_step);
@@ -904,11 +927,17 @@ public:
 
         _check_point_vis_pub.publish(_check_point_vis);
     }
+    
+    void setLaserScanFilterSetting(double step, double resolution)
+    {
+        this->_laser_scan_step = step;
+        this->_laser_scan_resolution = resolution;
+    }
 
     void set2DLaserDataSetting(double extra_height, double ground_height)
     {
-        _extra_obstacle_height = extra_height;
-        _allowed_ground_height = ground_height;
+        this->_extra_obstacle_height = extra_height;
+        this->_allowed_ground_height = ground_height;
     }
 
     void setFlightHeightLimit(double height_limit)
@@ -938,6 +967,7 @@ int main(int argc, char ** argv)
     double flight_height_limit;
     double extra_obstacle_heigt;
     double allowed_ground_height;
+    double laser_resolution, laser_step;
 
     handle.param("flag/visualization", is_vis, true);
     handle.param("map/boundary/lower_x", bdy[_BDY_x], -100.0);
@@ -953,26 +983,30 @@ int main(int argc, char ** argv)
     handle.param("setting/flight_height_limit", flight_height_limit, -1e7);
     handle.param("setting/extra_obstacle_height", extra_obstacle_heigt, 0.0);
     handle.param("setting/allowed_ground_height", allowed_ground_height, 1e7);
+    handle.param("setting/laser_scan_step", laser_step, 0.2);
+    handle.param("setting/laser_scan_resolution", laser_resolution, 0.05);
 
 
-    ROS_INFO("[TRAJ] vel = %.3lf acc = %.3lf", max_vel, max_acc);
+    ROS_INFO("[TRAJ_SERVER] vel = %.3lf acc = %.3lf", max_vel, max_acc);
+
     server.buildMap(bdy, resolution, safe_margin, max_vel, max_acc);
     server.setFlightHeightLimit(flight_height_limit);
     server.set2DLaserDataSetting(extra_obstacle_heigt, allowed_ground_height);
+    server.setLaserScanFilterSetting(laser_step, laser_resolution);
 
     if (is_vis) 
         server.enableVisualization();
     else
         server.disableVisualization();
 
-    ros::Rate work_rate(1.0);
-    while (ros::ok())
-    {
-        server.visMap();
-        work_rate.sleep();
-    }
+    // ros::Rate work_rate(1.0);
+    // while (ros::ok())
+    // {
+    //     server.visMap();
+    //     work_rate.sleep();
+    //     ros::spinOnce();
+    // }
 
     ros::spin();
     return 0;
 }
-
