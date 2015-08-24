@@ -24,6 +24,7 @@
 #include "visualization_msgs/Marker.h"
 // desired states messages
 #include "quadrotor_msgs/PositionCommand.h"
+#include "quadrotor_msgs/PolynomialTrajectory.h"
 //#include "mavlink_message/PositionCommand.h"
 #include "laser_geometry/laser_geometry.h"
 
@@ -52,6 +53,7 @@ private:
 
     // publishers
     ros::Publisher _desired_state_pub;
+    ros::Publisher _traj_pub;
 
     ros::Publisher _map_vis_pub;
     ros::Publisher _traj_vis_pub;
@@ -93,6 +95,7 @@ private:
 
     // output messages
     quadrotor_msgs::PositionCommand _pos_cmd;
+    quadrotor_msgs::PolynomialTrajectory _traj;
 
     visualization_msgs::Marker _traj_vis;
     visualization_msgs::MarkerArray _path_vis, _inflated_path_vis;
@@ -133,6 +136,8 @@ public:
         // publish desired state
         _desired_state_pub = 
             handle.advertise<quadrotor_msgs::PositionCommand>("desired_state", 10);
+        _traj_pub = 
+            handle.advertise<quadrotor_msgs::PolynomialTrajectory>("trajectory", 10);
 
 
         // pulish visualizatioin
@@ -218,18 +223,18 @@ public:
            {
 #if 0
                if (!(_final_time > ros::TIME_MIN)) return ;
-               ROS_WARN("[TRAJ] last dest: [%.3lf %.3lf %.3lf]", 
+               ROS_WARN("[GENERATOR] last dest: [%.3lf %.3lf %.3lf]", 
                        _last_dest.pose.pose.position.x,
                        _last_dest.pose.pose.position.y,
                        _last_dest.pose.pose.position.z);
 
-               ROS_WARN("[TRAJ] last desired: \n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]", 
+               ROS_WARN("[GENERATOR] last desired: \n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]", 
                        _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z,
                        _pos_cmd.velocity.x, _pos_cmd.velocity.y, _pos_cmd.velocity.z,
                        _pos_cmd.acceleration.x, _pos_cmd.acceleration.y, _pos_cmd.acceleration.z);
 
                vector<double> state = _core->getDesiredState(_odom.header.stamp.toSec());
-               ROS_WARN("[TRAJ] desired dest: [%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]", 
+               ROS_WARN("[GENERATOR] desired dest: [%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]\n[%.3lf %.3lf %.3lf]", 
                        state[0], state[1], state[2], 
                        state[3], state[4], state[5], 
                        state[6], state[7], state[8]);
@@ -253,7 +258,7 @@ public:
            }
 
            _desired_state_pub.publish(_pos_cmd);
-       //    ROS_INFO("[TRAJ] Published desired states, at [%.3lf %.3lf %.3lf]", 
+       //    ROS_INFO("[GENERATOR] Published desired states, at [%.3lf %.3lf %.3lf]", 
        //           _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z);
        }
     }
@@ -263,24 +268,23 @@ public:
         if (odom.child_frame_id == "X" || odom.child_frame_id == "O") return ;
         _odom = odom;
         _has_odom = true;
-        //ROS_INFO("[TRAJ] Received odometry message. now at : [%.3lf %.3lf %.3lf]",
+        //ROS_INFO("[GENERATOR] Received odometry message. now at : [%.3lf %.3lf %.3lf]",
         //        odom.pose.pose.position.x,
         //        odom.pose.pose.position.y,
         //        odom.pose.pose.position.z);
         _odom_queue.push_back(odom);
         while (_odom_queue.size() > _odom_queue_size) _odom_queue.pop_front();
-        
-        publishDesiredState();
+        //publishDesiredState();
     }
 
     void checkHalfWay()
     {
-        //ROS_INFO("[TRAJ] Checking halfway obstacle!!");
+        //ROS_INFO("[GENERATOR] Checking halfway obstacle!!");
         if (_has_traj && _odom.header.stamp < _final_time && _core->checkHalfWayObstacle_BrutalForce())
         {
 #if 0
-            ROS_INFO("[TRAJ] Replan. Will set up %lu waypoint(s).", _waypoints.size());
-            ROS_INFO("[TRAJ] Replan. %lu arr_time.", _arr_time.size());
+            ROS_INFO("[GENERATOR] Replan. Will set up %lu waypoint(s).", _waypoints.size());
+            ROS_INFO("[GENERATOR] Replan. %lu arr_time.", _arr_time.size());
             for (size_t i = 0; i < _arr_time.size(); ++i) 
             {
                 ROS_INFO("t = %.3lf, dest = [%.3lf %.3lf %.3lf]", _arr_time[i], 
@@ -294,7 +298,7 @@ public:
             
             if (_arr_time.size() * _TOT_DIM != _waypoints.size())
             {
-                ROS_WARN("[TRAJ] Replan failed. arr_time size = %lu, waypoints size = %lu",
+                ROS_WARN("[GENERATOR] Replan failed. arr_time size = %lu, waypoints size = %lu",
                         _arr_time.size(), _waypoints.size());
                 return ;
             }
@@ -305,8 +309,8 @@ public:
                 if (_odom.header.stamp.toSec() < _arr_time[vaild_id]) break;
             }
 
-            //ROS_INFO("[TRAJ] now time = %.3lf", _odom.header.stamp.toSec());
-            //ROS_INFO("[TRAJ] vaild id = %lu", vaild_id);
+            //ROS_INFO("[GENERATOR] now time = %.3lf", _odom.header.stamp.toSec());
+            //ROS_INFO("[GENERATOR] vaild id = %lu", vaild_id);
 
             if (vaild_id >= _arr_time.size()) return ;
 
@@ -320,9 +324,12 @@ public:
                 path.poses[idx - vaild_id].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
             }
 
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
+            _traj_pub.publish(_traj);
+
             rcvWaypointsCallback(path);
         }
-        //ROS_INFO("[TRAJ] HALF_WAY_CHECK DONE!!");
+        //ROS_INFO("[GENERATOR] HALF_WAY_CHECK DONE!!");
     }
 
     void rcvGlobalPointCloudCallback(const sensor_msgs::PointCloud2 & cloud)
@@ -599,7 +606,7 @@ public:
         {
             _arr_time.clear();
             _waypoints.clear();
-            ROS_WARN("[TRAJ] Generating the trajectory failed!");
+            ROS_WARN("[GENERATOR] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
         }
@@ -611,15 +618,15 @@ public:
         }
 
         _has_traj = true;
-         ROS_INFO("[TRAJ] Starting visualization.");
+         ROS_INFO("[GENERATOR] Starting visualization.");
         visTrajectory();
-        ROS_INFO("[TRAJ] Trajectory visualzation finished.");
+        ROS_INFO("[GENERATOR] Trajectory visualzation finished.");
         visPath();
-        ROS_INFO("[TRAJ] Path visualzation finished.");
+        ROS_INFO("[GENERATOR] Path visualzation finished.");
         visInflatedPath();
-        ROS_INFO("[TRAJ] Inflated path visualzation finished.");
+        ROS_INFO("[GENERATOR] Inflated path visualzation finished.");
         visCheckpoint();
-        ROS_INFO("[TRAJ] Checkpoints visualzation finished.");
+        ROS_INFO("[GENERATOR] Checkpoints visualzation finished.");
     }
 
     void rcvWaypointsCallback(const nav_msgs::Path & wp)
@@ -650,35 +657,42 @@ public:
             _waypoints.push_back(pose.pose.position.z);
         }
 
-        ROS_INFO("[TRAJ] Generating the trajectory.");
+        ROS_INFO("[GENERATOR] Generating the trajectory.");
 
         if (_core->setWayPoints(state, _waypoints, _odom.header.stamp.toSec(), _arr_time) != 2)
         {
             _arr_time.clear();
             _waypoints.clear();
-            ROS_INFO("[TRAJ] Generating the trajectory failed!");
+            ROS_INFO("[GENERATOR] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
         }
         else
         {
-            ROS_INFO("[TRAJ] Generating the trajectory succeed!");
+            ROS_INFO("[GENERATOR] Generating the trajectory succeed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = wp.poses.back().pose.position;
             _final_time = ros::Time(_core->getFinalTime());
-        }
+
+            _traj = _core->getTraj();
+            _traj.header.frame_id = "/map";
+            _traj.trajectory_id = _traj_id;
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ADD;
+            _traj_pub.publish(_traj); 
+            ROS_INFO("[GENERATOR] Published the trajectory.");
+       }
 
         _has_traj = true;
-
-        ROS_INFO("[TRAJ] Starting visualization.");
+        ROS_INFO("[GENERATOR] Starting visualization.");
         visTrajectory();
-        ROS_INFO("[TRAJ] Trajectory visualzation finished.");
+        ROS_INFO("[GENERATOR] Trajectory visualzation finished.");
         visPath();
-        ROS_INFO("[TRAJ] Path visualzation finished.");
+        ROS_INFO("[GENERATOR] Path visualzation finished.");
         visInflatedPath();
-        ROS_INFO("[TRAJ] Inflated path visualzation finished.");
+        ROS_INFO("[GENERATOR] Inflated path visualzation finished.");
         visCheckpoint();
-        ROS_INFO("[TRAJ] Checkpoints visualzation finished.");
+        ROS_INFO("[GENERATOR] Checkpoints visualzation finished.");
+
     }
 
     void disableVisualization()
@@ -693,20 +707,20 @@ public:
 
     void visMap(const ros::TimerEvent& evt)
     {
-        //ROS_INFO("[TRAJ] Map visualization start... flag : is_vis = %d, has_map = %d",
+        //ROS_INFO("[GENERATOR] Map visualization start... flag : is_vis = %d, has_map = %d",
                // _is_vis, _has_map);
 
         if (!_is_vis || !_has_map) return ;
         vector<double> pt = _core->getPointCloud();
-        //ROS_INFO("[TRAJ] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
+        //ROS_INFO("[GENERATOR] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
 
         vector<float> pt32;
         pt32.resize(pt.size());
         for (size_t idx = 0; idx < pt.size(); ++idx) pt32[idx] = static_cast<float>(pt[idx]);
-        //ROS_INFO("[TRAJ] float points alredy.");
+        //ROS_INFO("[GENERATOR] float points alredy.");
 
         const double * bdy = _core->getBdy();
-        ROS_INFO("[TRAJ] The boundary of the map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
+        ROS_INFO("[GENERATOR] The boundary of the map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
                 bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
 
         _map_vis.header.frame_id = "/map";
@@ -741,7 +755,7 @@ public:
         }
 
         _map_vis_pub.publish(_map_vis);
-        ROS_INFO("[TRAJ] Map visualization finished. Total number of points : %d.", 
+        ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
                 _map_vis.point_step);
     }
 
@@ -776,12 +790,12 @@ public:
 
         double t_begin = _core->getBeginTime(), t_final = _core->getFinalTime();
         _traj_vis.points.clear();
-        ROS_INFO("[TRAJ] Trajectory time : %.3lf %.3lf", t_begin, t_final);
+        ROS_INFO("[GENERATOR] Trajectory time : %.3lf %.3lf", t_begin, t_final);
         _traj_vis.points.reserve(static_cast<int>((t_final - t_begin) * 100 + 0.5));
         vector<double> state;
         geometry_msgs::Point pt;
 
-        ROS_INFO("[TRAJ] Trajectory visualization prepared.");
+        ROS_INFO("[GENERATOR] Trajectory visualization prepared.");
 
         for (double t = t_begin; t < t_final; t += 0.02, count += 1)
         {
@@ -795,7 +809,7 @@ public:
             pre = cur;
         }
 
-        ROS_INFO("[TRAJ] The length of the trajectory; %.3lfm.", traj_len);
+        ROS_INFO("[GENERATOR] The length of the trajectory; %.3lfm.", traj_len);
         _traj_vis_pub.publish(_traj_vis);
     }
 

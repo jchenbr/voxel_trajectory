@@ -44,6 +44,21 @@ public:
 
         _cmd_pub = 
             handle.advertise<quadrotor_msgs::PositionCommand>("position_command", 50);
+
+        double pos_gain[_TOT_DIM] = {3.7, 3.7, 5.2};
+        double vel_gain[_TOT_DIM] = {2.4, 2.4, 3.0};
+        setGains(pos_gain, vel_gain);
+    }
+
+    void setGains(double pos_gain[_TOT_DIM], double vel_gain[_TOT_DIM])
+    {
+        _cmd.kx[_DIM_x] = pos_gain[_DIM_x];
+        _cmd.kx[_DIM_y] = pos_gain[_DIM_y];
+        _cmd.kx[_DIM_z] = pos_gain[_DIM_z];
+
+        _cmd.kv[_DIM_x] = vel_gain[_DIM_x];
+        _cmd.kv[_DIM_y] = vel_gain[_DIM_y];
+        _cmd.kv[_DIM_z] = vel_gain[_DIM_z];
     }
 
     void rcvOdometryCallback(const nav_msgs::Odometry & odom)
@@ -64,9 +79,11 @@ public:
 
     void rcvTrajectoryCallabck(const quadrotor_msgs::PolynomialTrajectory & traj)
     {
+        ROS_WARN("[SERVER] Recevied The Trajectory with %.3lf.", _start_time.toSec());
         // #1. try to execuse the action
         if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ADD)
         {
+            ROS_WARN("[SERVER] Loading the trajectory.");
             if ((int)traj.trajectory_id < _traj_id) return ;
 
             state = TRAJ;
@@ -78,11 +95,13 @@ public:
             _coef[_DIM_x].resize(_n_order, _n_segment);
             _coef[_DIM_y].resize(_n_order, _n_segment);
             _coef[_DIM_z].resize(_n_order, _n_segment);
+            _time.resize(_n_segment);
 
             _final_time = _start_time = traj.header.stamp;
             for (int idx = 0; idx < _n_segment; ++idx)
             {
                 _final_time += ros::Duration(traj.time[idx]);
+                _time(idx) = traj.time[idx];
 
                 for (int j = 0; j < _n_order; ++j)
                 {
@@ -91,9 +110,11 @@ public:
                     _coef[_DIM_z](j, idx) = traj.coef_z[idx * _n_order + j];
                 }
             }
+            ROS_WARN("[SERVER] Finished the loading.");
         }
         else if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT) 
         {
+            ROS_WARN("[SERVER] Aborting the trajectory.");
             state = HOVER;
         }
         // #2. try to store the trajectory if the case
@@ -132,6 +153,7 @@ public:
             double t = max(0.0, (_odom.header.stamp - _start_time).toSec());
             if (_odom.header.stamp > _final_time) t = (_final_time - _start_time).toSec();
             // #3. calculate the desired states
+            ROS_WARN("[SERVER] the time : %.3lf\n, n = %d, m = %d", t, _n_order, _n_segment);
             for (int idx = 0; idx < _n_segment; ++idx)
             {
                 if (t > _time[idx] && idx + 1 < _n_segment)
@@ -140,38 +162,54 @@ public:
                 }
                 else
                 {
-                    Eigen::VectorXd _vec_T(_n_order);
-
-                    // position
-                    _vec_T << 1.0;
+                    ROS_WARN("[SERVER] the remained time : %.3lf\n", t);
+                    Eigen::VectorXd _T(_n_order), _vec;
+                    _T(0) = 1.0;
                     for (int i = 1; i < _n_order; ++i)
                     {
-                        _vec_T(i) = _vec_T(i - 1) * t;
+                        _T(i) = _T(i - 1) * t;
                     }
 
-                    _cmd.position.x = _vec_T.dot(_coef[_DIM_x].col(idx));
-                    _cmd.position.y = _vec_T.dot(_coef[_DIM_y].col(idx));
-                    _cmd.position.z = _vec_T.dot(_coef[_DIM_z].col(idx));
+                    // position
+                    _vec = _T;
+                    _cmd.position.x = _vec.dot(_coef[_DIM_x].col(idx));
+                    _cmd.position.y = _vec.dot(_coef[_DIM_y].col(idx));
+                    _cmd.position.z = _vec.dot(_coef[_DIM_z].col(idx));
                     
                     // velocity
-                    for (int i = _n_order - 1; i >= 0; --i)
+                    for (int i = 0; i < _n_order; ++i)
                     {
-                        _vec_T(i) = (i - 1) * _vec_T(i - 1);
+                        if (i > 0)
+                        {
+                            _vec(i) = _T(i - 1) * i;
+                        }
+                        else
+                        {
+                            _vec(i) = 0;
+                        }
                     }
 
-                    _cmd.velocity.x = _vec_T.dot(_coef[_DIM_x].col(idx));
-                    _cmd.velocity.y = _vec_T.dot(_coef[_DIM_y].col(idx));
-                    _cmd.velocity.z = _vec_T.dot(_coef[_DIM_z].col(idx));
+                    _cmd.velocity.x = _vec.dot(_coef[_DIM_x].col(idx));
+                    _cmd.velocity.y = _vec.dot(_coef[_DIM_y].col(idx));
+                    _cmd.velocity.z = _vec.dot(_coef[_DIM_z].col(idx));
 
                     // acceleration
-                    for (int i = _n_order - 1; i >= 0; --i)
+                    for (int i = 0; i < _n_order; ++i)
                     {
-                        _vec_T(i) = (i - 1) * _vec_T(i - 1);
+                        if (i > 1)
+                        {
+                            _vec(i) = _T(i - 2) * i * (i - 1);
+                        }
+                        else
+                        {
+                            _vec(i) = 0;
+                        }
                     }
 
-                    _cmd.acceleration.x = _vec_T.dot(_coef[_DIM_x].col(idx));
-                    _cmd.acceleration.y = _vec_T.dot(_coef[_DIM_y].col(idx));
-                    _cmd.acceleration.z = _vec_T.dot(_coef[_DIM_z].col(idx));
+                    _cmd.acceleration.x = _vec.dot(_coef[_DIM_x].col(idx));
+                    _cmd.acceleration.y = _vec.dot(_coef[_DIM_y].col(idx));
+                    _cmd.acceleration.z = _vec.dot(_coef[_DIM_z].col(idx));
+                    break;
                 } 
             }
         }
@@ -185,6 +223,10 @@ int main(int argc, char ** argv)
 {
     ros::init(argc, argv, "grid_trajectory_server_node");
     ros::NodeHandle handle("~");
+
+    TrajectoryServer server(handle);
+
+    ros::spin();
 
     return 0;
 }

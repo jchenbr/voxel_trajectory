@@ -1,6 +1,9 @@
-
 #ifndef _VOXEL_TRAJECTORY_VOXEL_SERVER_H_
 #define _VOXEL_TRAJECTORY_VOXEL_SERVER_H_
+
+#include "voxel_trajectory/voxelmacro.h"
+#include "voxel_trajectory/octomap.h"
+#include "voxel_trajectory/trajectorygenerator.h"
 
 #include <eigen3/Eigen/Dense>
 #include <iostream>
@@ -10,10 +13,8 @@
 #include <ros/console.h>
 #include <ros/ros.h>
 #include <visualization_msgs/Marker.h>
+#include "quadrotor_msgs/PolynomialTrajectory.h"
 
-#include "voxel_trajectory/voxelmacro.h"
-#include "voxel_trajectory/octomap.h"
-#include "voxel_trajectory/trajectorygenerator.h"
 
 const double _DB_INF = 1e100;
 const double _eps = 1e-9;
@@ -557,6 +558,39 @@ public:
                         }
                     }
             return ret;
+        }
+
+        quadrotor_msgs::PolynomialTrajectory getTraj()
+        {
+            quadrotor_msgs::PolynomialTrajectory traj;
+            traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ADD;
+            traj.num_order = nPoly;
+            traj.num_segment = nTraj;
+
+            traj.coef_x.resize(P.rows());
+            traj.coef_y.resize(P.rows());
+            traj.coef_z.resize(P.rows());
+
+            ROS_WARN("[VOXEL] A");
+            for (int idx = 0; idx < P.rows(); ++idx)
+            {
+                traj.coef_x[idx] = P(idx, _DIM_x);
+                traj.coef_y[idx] = P(idx, _DIM_y);
+                traj.coef_z[idx] = P(idx, _DIM_z);
+            }
+
+            ROS_WARN("[VOXEL] B");
+            traj.header.frame_id = "/map";
+            traj.header.stamp = ros::Time(init_time); 
+            
+            ROS_WARN("[VOXEL] C");
+            traj.time.resize(T.rows());
+            for (int idx = 0; idx < T.rows(); ++idx)
+            {
+                traj.time[idx] = T[idx];
+            }
+            ROS_WARN("[VOXEL] D");
+            return traj;
         }
 
         /* 4. some helpful function
