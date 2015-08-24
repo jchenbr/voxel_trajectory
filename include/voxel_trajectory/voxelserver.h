@@ -410,6 +410,7 @@ public:
             coeff_t = 1.0 / coeff_t;
             vector<double> state = getDesiredState(init_time);
             if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
+            coeff_t = 1.0;
 
             //clog << "coeff t = " << coeff_t << endl;
             //state = getDesiredState(final_time);

@@ -150,6 +150,10 @@ add_executable(test_limited_sensing_node src/test_limited_sensing_node.cpp)
 
 add_executable(body_tf src/body_tf.cpp)
 
+add_executable(grid_trajectory_server_node src/grid_trajectory_server_node.cpp)
+
+add_executable(grid_trajectory_generator_node src/grid_trajectory_generator_node.cpp)
+
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -203,8 +207,6 @@ target_link_libraries(test_limited_sensing_node
 
 target_link_libraries(trajectory_server_node
     ${catkin_LIBRARIES}
-    ${PCL_COMMON_LIBRRIES}
-    ${PCL_IO_LIBRARIES}
 
     octomap_
     trajectorygenerator_
@@ -263,6 +265,25 @@ target_link_libraries( voxel_bridge_enhanced_node
 )
 
 target_link_libraries(voxel_set_obstacle_node
+    ${catkin_LIBRARIES}
+)
+
+target_link_libraries(grid_trajectory_generator_node
+    ${catkin_LIBRARIES}
+
+    octomap_
+    trajectorygenerator_
+
+    ooqpgensparse
+    ooqpsparse
+    ooqpgondzio
+    ooqpbase
+    blas
+    ma27
+    gfortran
+)
+
+target_link_libraries(grid_trajectory_server_node
     ${catkin_LIBRARIES}
 )
 

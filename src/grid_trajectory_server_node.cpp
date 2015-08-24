@@ -1,0 +1,190 @@
+#include "ros/ros.h"
+#include "ros/console.h"
+#include "nav_msgs/Odometry.h"
+#include "quadrotor_msgs/PolynomialTrajectory.h"
+#include "quadrotor_msgs/PositionCommand.h"
+#include "voxel_trajectory/voxelmacro.h"
+#include <eigen3/Eigen/Dense>
+
+using namespace std;
+
+class TrajectoryServer
+{
+private:
+
+    // Subscribers
+    ros::Subscriber _odom_sub;
+    ros::Subscriber _traj_sub;
+
+    // publishers
+    ros::Publisher _cmd_pub;
+    
+    // configuration for trajectory
+    int _n_order = 6;
+    int _n_segment = 0;
+    int _traj_id = 0;
+    Eigen::VectorXd _time;
+    Eigen::MatrixXd _coef[_TOT_DIM];
+    ros::Time _final_time = ros::TIME_MIN;
+    ros::Time _start_time = ros::TIME_MAX;
+
+    // state of the server
+    enum ServerState{INIT, TRAJ, HOVER} state = INIT;
+    nav_msgs::Odometry _odom;
+    quadrotor_msgs::PositionCommand _cmd;
+
+public:
+    TrajectoryServer(ros::NodeHandle & handle)
+    {
+        _odom_sub = 
+            handle.subscribe("odometry", 50, &TrajectoryServer::rcvOdometryCallback, this);
+
+        _traj_sub =
+            handle.subscribe("trajectory", 2, &TrajectoryServer::rcvTrajectoryCallabck, this);
+
+        _cmd_pub = 
+            handle.advertise<quadrotor_msgs::PositionCommand>("position_command", 50);
+    }
+
+    void rcvOdometryCallback(const nav_msgs::Odometry & odom)
+    {
+        if (odom.child_frame_id == "X" || odom.child_frame_id == "O") return ;
+        // #1. store the odometry
+        _odom = odom;
+
+        // #2. try to publish command
+        pubPositionCommand();
+
+        // #3. try to calculate the new state
+        if (state == TRAJ && odom.header.stamp > _final_time)
+        {
+            state = HOVER;
+        }
+    }
+
+    void rcvTrajectoryCallabck(const quadrotor_msgs::PolynomialTrajectory & traj)
+    {
+        // #1. try to execuse the action
+        if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ADD)
+        {
+            if ((int)traj.trajectory_id < _traj_id) return ;
+
+            state = TRAJ;
+            _traj_id = traj.trajectory_id;
+
+            _n_order = traj.num_order;
+            _n_segment = traj.num_segment;
+
+            _coef[_DIM_x].resize(_n_order, _n_segment);
+            _coef[_DIM_y].resize(_n_order, _n_segment);
+            _coef[_DIM_z].resize(_n_order, _n_segment);
+
+            _final_time = _start_time = traj.header.stamp;
+            for (int idx = 0; idx < _n_segment; ++idx)
+            {
+                _final_time += ros::Duration(traj.time[idx]);
+
+                for (int j = 0; j < _n_order; ++j)
+                {
+                    _coef[_DIM_x](j, idx) = traj.coef_x[idx * _n_order + j];
+                    _coef[_DIM_y](j, idx) = traj.coef_y[idx * _n_order + j];
+                    _coef[_DIM_z](j, idx) = traj.coef_z[idx * _n_order + j];
+                }
+            }
+        }
+        else if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT) 
+        {
+            state = HOVER;
+        }
+        // #2. try to store the trajectory if the case
+    }
+
+    void pubPositionCommand()
+    {
+        // #1. check if it is right state
+        if (state == INIT) return;
+        if (state == HOVER)
+        {
+            if (_cmd.header.frame_id != "/map")
+            {
+                _cmd.position = _odom.pose.pose.position;
+            }
+
+            _cmd.header.stamp = _odom.header.stamp;
+            _cmd.header.frame_id = "/map";
+            _cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
+
+            _cmd.velocity.x = 0.0;
+            _cmd.velocity.y = 0.0;
+            _cmd.velocity.z = 0.0;
+            
+            _cmd.acceleration.x = 0.0;
+            _cmd.acceleration.y = 0.0;
+            _cmd.acceleration.z = 0.0;
+        }
+        // #2. locate the trajectory segment
+        if (state == TRAJ)
+        {
+            _cmd.header.stamp = _odom.header.stamp;
+            _cmd.header.frame_id = "/map";
+            _cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
+
+            double t = max(0.0, (_odom.header.stamp - _start_time).toSec());
+            if (_odom.header.stamp > _final_time) t = (_final_time - _start_time).toSec();
+            // #3. calculate the desired states
+            for (int idx = 0; idx < _n_segment; ++idx)
+            {
+                if (t > _time[idx] && idx + 1 < _n_segment)
+                {
+                    t -= _time[idx];
+                }
+                else
+                {
+                    Eigen::VectorXd _vec_T(_n_order);
+
+                    // position
+                    _vec_T << 1.0;
+                    for (int i = 1; i < _n_order; ++i)
+                    {
+                        _vec_T(i) = _vec_T(i - 1) * t;
+                    }
+
+                    _cmd.position.x = _vec_T.dot(_coef[_DIM_x].col(idx));
+                    _cmd.position.y = _vec_T.dot(_coef[_DIM_y].col(idx));
+                    _cmd.position.z = _vec_T.dot(_coef[_DIM_z].col(idx));
+                    
+                    // velocity
+                    for (int i = _n_order - 1; i >= 0; --i)
+                    {
+                        _vec_T(i) = (i - 1) * _vec_T(i - 1);
+                    }
+
+                    _cmd.velocity.x = _vec_T.dot(_coef[_DIM_x].col(idx));
+                    _cmd.velocity.y = _vec_T.dot(_coef[_DIM_y].col(idx));
+                    _cmd.velocity.z = _vec_T.dot(_coef[_DIM_z].col(idx));
+
+                    // acceleration
+                    for (int i = _n_order - 1; i >= 0; --i)
+                    {
+                        _vec_T(i) = (i - 1) * _vec_T(i - 1);
+                    }
+
+                    _cmd.acceleration.x = _vec_T.dot(_coef[_DIM_x].col(idx));
+                    _cmd.acceleration.y = _vec_T.dot(_coef[_DIM_y].col(idx));
+                    _cmd.acceleration.z = _vec_T.dot(_coef[_DIM_z].col(idx));
+                } 
+            }
+        }
+        // #4. just publish
+        _cmd_pub.publish(_cmd);
+    }
+
+};
+
+int main(int argc, char ** argv)
+{
+    ros::init(argc, argv, "grid_trajectory_server_node");
+    ros::NodeHandle handle("~");
+
+    return 0;
+}
