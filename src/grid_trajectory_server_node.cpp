@@ -110,7 +110,7 @@ public:
                     _coef[_DIM_z](j, idx) = traj.coef_z[idx * _n_order + j];
                 }
             }
-            ROS_WARN("[SERVER] Finished the loading.");
+            //ROS_WARN("[SERVER] Finished the loading.");
         }
         else if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT) 
         {
@@ -153,7 +153,7 @@ public:
             double t = max(0.0, (_odom.header.stamp - _start_time).toSec());
             if (_odom.header.stamp > _final_time) t = (_final_time - _start_time).toSec();
             // #3. calculate the desired states
-            ROS_WARN("[SERVER] the time : %.3lf\n, n = %d, m = %d", t, _n_order, _n_segment);
+            //ROS_WARN("[SERVER] the time : %.3lf\n, n = %d, m = %d", t, _n_order, _n_segment);
             for (int idx = 0; idx < _n_segment; ++idx)
             {
                 if (t > _time[idx] && idx + 1 < _n_segment)
@@ -162,13 +162,10 @@ public:
                 }
                 else
                 {
-                    ROS_WARN("[SERVER] the remained time : %.3lf\n", t);
+                    //ROS_WARN("[SERVER] the remained time : %.3lf\n", t);
                     Eigen::VectorXd _T(_n_order), _vec;
                     _T(0) = 1.0;
-                    for (int i = 1; i < _n_order; ++i)
-                    {
-                        _T(i) = _T(i - 1) * t;
-                    }
+                    for (int i = 1; i < _n_order; ++i) _T(i) = _T(i - 1) * t;
 
                     // position
                     _vec = _T;
@@ -179,14 +176,8 @@ public:
                     // velocity
                     for (int i = 0; i < _n_order; ++i)
                     {
-                        if (i > 0)
-                        {
-                            _vec(i) = _T(i - 1) * i;
-                        }
-                        else
-                        {
-                            _vec(i) = 0;
-                        }
+                        if (i > 0) _vec(i) = _T(i - 1) * i;
+                        else _vec(i) = 0;
                     }
 
                     _cmd.velocity.x = _vec.dot(_coef[_DIM_x].col(idx));

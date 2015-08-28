@@ -56,6 +56,7 @@ private:
     ros::Publisher _traj_pub;
 
     ros::Publisher _map_vis_pub;
+    ros::Publisher _map_no_inflation_vis_pub;
     ros::Publisher _traj_vis_pub;
     ros::Publisher _check_point_vis_pub;
     ros::Publisher _path_vis_pub;
@@ -97,6 +98,7 @@ private:
     quadrotor_msgs::PositionCommand _pos_cmd;
     quadrotor_msgs::PolynomialTrajectory _traj;
 
+    VoxelTrajectory::VoxelServer * _core_no_inflation = new VoxelTrajectory::VoxelServer();
     visualization_msgs::Marker _traj_vis;
     visualization_msgs::MarkerArray _path_vis, _inflated_path_vis;
     sensor_msgs::PointCloud2 _map_vis;
@@ -105,6 +107,7 @@ private:
     
     // otheros
     ros::Timer _vis_map_timer;
+    ros::Timer _vis_map_no_inflation_timer;
 
     ros::Time _last_scan_stamp;
     double _laser_scan_step = 0.2;
@@ -143,6 +146,8 @@ public:
         // pulish visualizatioin
         _map_vis_pub =
             handle.advertise<sensor_msgs::PointCloud2>("map_vis", 2);
+        _map_no_inflation_vis_pub = 
+            handle.advertise<sensor_msgs::PointCloud2>("map_no_inflation_vis", 2);
         _path_vis_pub =
             handle.advertise<visualization_msgs::MarkerArray>("path_vis", 2);
         _inflated_path_vis_pub = 
@@ -157,6 +162,8 @@ public:
         // others
         _vis_map_timer = 
             handle.createTimer(ros::Duration(1.0), &TrajectoryGenerator::visMap, this);
+        _vis_map_no_inflation_timer = 
+            handle.createTimer(ros::Duration(1.0), &TrajectoryGenerator::visMapNoInflation, this);
 
         _last_scan_stamp = ros::TIME_MIN;
 
@@ -170,6 +177,13 @@ public:
         _core->setMargin(_safe_margin = safe_margin);
         _core->setMaxVelocity(_max_vel = max_vel);
         _core->setMaxAcceleration(_max_acc = max_acc);
+        
+        _core_no_inflation->setMapBoundary(bdy);
+        _core_no_inflation->setResolution(_resolution);
+        _core_no_inflation->setMargin(_safe_margin);
+        _core_no_inflation->setMaxVelocity(_max_vel);
+        _core_no_inflation->setMaxAcceleration(_max_acc);
+
         _has_map = true;
     
         double pos_gain[_TOT_DIM] = {3.7, 3.7, 5.2};
@@ -337,8 +351,9 @@ public:
         if (!_has_map) return ;
 
         const float * data = reinterpret_cast<const float *>(cloud.data.data());
-        vector<double> pt;
+        vector<double> pt, pt_no_inflation;
         pt.reserve(cloud.width * _TOT_BDY);
+        pt_no_inflation.reserve(cloud.width * _TOT_BDY);
         for (size_t idx = 0; idx < cloud.width; ++idx)
         {
             pt.push_back(data[idx * _TOT_DIM + _DIM_x] - _safe_margin);
@@ -347,9 +362,17 @@ public:
             pt.push_back(data[idx * _TOT_DIM + _DIM_y] + _safe_margin);
             pt.push_back(data[idx * _TOT_DIM + _DIM_z] - _safe_margin);
             pt.push_back(data[idx * _TOT_DIM + _DIM_z] + _safe_margin);
+
+            pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_x] - _EPS);
+            pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_x] + _EPS);
+            pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_y] - _EPS);
+            pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_y] + _EPS);
+            pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_z] - _EPS);
+            pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_z] + _EPS);
         }
 
         _core->addMapBlock(pt);
+        _core_no_inflation->addMapBlock(pt_no_inflation);
 
         checkHalfWay();
 
@@ -361,8 +384,9 @@ public:
         if (!_has_map) return ;
 
         const float * data = reinterpret_cast<const float *>(cloud.data.data());
-        vector<double> blk;
+        vector<double> blk, blk_no_inflation;
         blk.reserve(cloud.width * _TOT_BDY);
+        blk_no_inflation.reserve(cloud.width * _TOT_BDY);
         for (size_t idx = 0; idx < cloud.width; ++idx)
         {
             blk.push_back(data[idx * _TOT_BDY + _BDY_x] - _safe_margin);    
@@ -371,8 +395,16 @@ public:
             blk.push_back(data[idx * _TOT_BDY + _BDY_Y] + _safe_margin);    
             blk.push_back(data[idx * _TOT_BDY + _BDY_z] - _safe_margin);    
             blk.push_back(data[idx * _TOT_BDY + _BDY_Z] + _safe_margin);    
+
+            blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_x] - _EPS);
+            blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_x] + _EPS);
+            blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_y] - _EPS);
+            blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_y] + _EPS);
+            blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_z] - _EPS);
+            blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_z] + _EPS);
         }
         _core->addMapBlock(blk);
+        _core_no_inflation->addMapBlock(blk_no_inflation);
 
         checkHalfWay();
 
@@ -420,8 +452,9 @@ public:
                 odom.pose.pose.position.z);
 
         // get the local coordinate & store in Eigen vector
-        vector<double> blk;
+        vector<double> blk, blk_no_inflation;
         blk.reserve(scan.ranges.size() * _TOT_BDY);
+        blk_no_inflation.reserve(scan.ranges.size() * _TOT_BDY);
 
 #if 0
         visualization_msgs::Marker mk;
@@ -484,9 +517,17 @@ public:
                 blk.push_back(pt(_DIM_z) - _safe_margin - _extra_obstacle_height);
                 blk.push_back(pt(_DIM_z) + _safe_margin + _extra_obstacle_height);
             }
+
+            blk_no_inflation.push_back(pt(_DIM_x) - _EPS);
+            blk_no_inflation.push_back(pt(_DIM_x) + _EPS);
+            blk_no_inflation.push_back(pt(_DIM_y) - _EPS);
+            blk_no_inflation.push_back(pt(_DIM_y) + _EPS);
+            blk_no_inflation.push_back(pt(_DIM_z) - _EPS);
+            blk_no_inflation.push_back(pt(_DIM_z) + _EPS);
         }
         //_laser_vis_pub.publish(mk);
         _core->addMapBlock(blk);
+        _core_no_inflation->addMapBlock(blk_no_inflation);
 
         checkHalfWay();
 
@@ -615,6 +656,13 @@ public:
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = pt;
             _final_time = ros::Time(_core->getFinalTime());
+
+            _traj = _core->getTraj();
+            _traj.header.frame_id = "/map";
+            _traj.trajectory_id = _traj_id;
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ADD;
+            _traj_pub.publish(_traj); 
+            ROS_INFO("[GENERATOR] Published the trajectory.");
         }
 
         _has_traj = true;
@@ -757,6 +805,62 @@ public:
         _map_vis_pub.publish(_map_vis);
         ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
                 _map_vis.point_step);
+
+    }
+
+    void visMapNoInflation(const ros::TimerEvent& evt)
+    {
+        ROS_INFO("[GENERATOR] Map no inflation visualization start... flag : is_vis = %d, has_map = %d",
+                _is_vis, _has_map);
+
+        if (!_is_vis || !_has_map) return ;
+        vector<double> pt = _core_no_inflation->getPointCloud();
+        ROS_INFO("[GENERATOR] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
+
+        vector<float> pt32;
+        pt32.resize(pt.size());
+        for (size_t idx = 0; idx < pt.size(); ++idx) pt32[idx] = static_cast<float>(pt[idx]);
+        ROS_INFO("[GENERATOR] float points alredy.");
+
+        const double * bdy = _core_no_inflation->getBdy();
+        ROS_INFO("[GENERATOR] The boundary of the no inflation map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
+                bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
+
+        _map_vis.header.frame_id = "/map";
+        _map_vis.header.stamp = _odom.header.stamp;
+
+        _map_vis.height = 1;
+        _map_vis.width = pt.size() / _TOT_DIM;
+        _map_vis.is_bigendian = false;
+        _map_vis.is_dense = true;
+
+        _map_vis.point_step = 4 * _TOT_DIM;
+        _map_vis.row_step = _map_vis.point_step * _map_vis.width;
+
+        sensor_msgs::PointField field;
+        _map_vis.fields.resize(_TOT_DIM);
+        string f_name[_TOT_DIM] = {"x", "y", "z"};
+        for (size_t idx = 0; idx < _TOT_DIM; ++idx)
+        {
+            field.name = f_name[idx];
+            field.offset = idx * 4;
+            field.datatype = sensor_msgs::PointField::FLOAT32;
+            field.count = 1;
+            _map_vis.fields[idx] = field;
+        }
+
+        _map_vis.data.clear();
+        _map_vis.data.reserve(_map_vis.row_step);
+        uint8_t * pt_int = reinterpret_cast<uint8_t *>(pt32.data());
+        for (size_t idx = 0; idx < _map_vis.row_step; ++idx)
+        {
+            _map_vis.data.push_back(pt_int[idx]);
+        }
+
+        _map_no_inflation_vis_pub.publish(_map_vis);
+        ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
+                _map_vis.point_step);
+
     }
 
     void visTrajectory()

@@ -308,7 +308,7 @@ namespace VoxelTrajectory
             insertBlock(bdy, _NODE_ROOT);
         }
 
-        clog << "going to deal with log." << endl;
+        //clog << "going to deal with log." << endl;
 
         // delete graph node
         
@@ -316,7 +316,7 @@ namespace VoxelTrajectory
         
         dealWithLog();
 
-        clog << "Dealed log." << endl;
+        //clog << "Dealed log." << endl;
     }
 
 #if 0
@@ -773,7 +773,7 @@ namespace VoxelTrajectory
             }
         }
 
-        clog << "[TRAJ] Map points already in octomap module." << endl;
+        //clog << "[TRAJ] Map points already in octomap module." << endl;
         return pt;
     }
 
