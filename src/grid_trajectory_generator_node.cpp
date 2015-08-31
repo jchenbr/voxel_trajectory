@@ -61,6 +61,7 @@ private:
     ros::Publisher _check_point_vis_pub;
     ros::Publisher _path_vis_pub;
     ros::Publisher _inflated_path_vis_pub;
+    ros::Publisher _win_ctr_vis_pub;
 
     ros::Publisher _laser_vis_pub;
 
@@ -104,6 +105,7 @@ private:
     sensor_msgs::PointCloud2 _map_vis;
     sensor_msgs::PointCloud2 _check_point_vis;
     sensor_msgs::LaserScan _laser_scan;
+    nav_msgs::Path _win_ctr_vis;
     
     // otheros
     ros::Timer _vis_map_timer;
@@ -158,6 +160,8 @@ public:
             handle.advertise<sensor_msgs::PointCloud2>("checkpoints_vis", 2);
         _laser_vis_pub = 
             handle.advertise<visualization_msgs::Marker>("laser_points_vis", 2);
+        _win_ctr_vis_pub = 
+            handle.advertise<nav_msgs::Path>("window_center_points_vis", 2);
 
         // others
         _vis_map_timer = 
@@ -625,6 +629,7 @@ public:
 
     void rcvDestinationCallback(const geometry_msgs::Point & pt)
     {
+#if 0
         if (!_has_map || !_has_odom) return ;
         _pos_cmd.trajectory_id = ++_traj_id;
         
@@ -675,6 +680,16 @@ public:
         ROS_INFO("[GENERATOR] Inflated path visualzation finished.");
         visCheckpoint();
         ROS_INFO("[GENERATOR] Checkpoints visualzation finished.");
+#endif 
+        nav_msgs::Path wp;
+        geometry_msgs::PoseStamped pose;
+
+        pose.pose.position = pt;
+
+        wp.poses.clear();
+        wp.poses.push_back(pose);
+
+        rcvWaypointsCallback(wp);
     }
 
     void rcvWaypointsCallback(const nav_msgs::Path & wp)
@@ -740,7 +755,8 @@ public:
         ROS_INFO("[GENERATOR] Inflated path visualzation finished.");
         visCheckpoint();
         ROS_INFO("[GENERATOR] Checkpoints visualzation finished.");
-
+        visWindowCenter();
+        ROS_INFO("[GENERATOR] Windows' center points published.");
     }
 
     void disableVisualization()
@@ -1043,6 +1059,35 @@ public:
             _check_point_vis.data[idx] = pt_int[idx];
 
         _check_point_vis_pub.publish(_check_point_vis);
+    }
+
+    void visWindowCenter()
+    {
+        const Eigen::MatrixXd & m_path = _core->getPathConstRef();
+        int m = m_path.rows() >> 1;
+        nav_msgs::Path & win_ctr = _win_ctr_vis;
+        geometry_msgs::PoseStamped pose;
+
+        win_ctr.header.frame_id = "/map";
+        win_ctr.header.stamp = _odom.header.stamp;
+        pose.header = win_ctr.header;
+        win_ctr.poses.clear();
+        win_ctr.poses.reserve(m);
+        
+        for (int idx = m + 1; idx < (m + m); ++ idx)
+        {
+            pose.pose.position.x = 0.5 * (m_path(idx, _BDY_x) + m_path(idx, _BDY_X));
+            pose.pose.position.y = 0.5 * (m_path(idx, _BDY_y) + m_path(idx, _BDY_Y));
+            pose.pose.position.z = 0.5 * (m_path(idx, _BDY_z) + m_path(idx, _BDY_Z));
+            win_ctr.poses.push_back(pose);
+        }
+        pose.pose.position.x = m_path(0, 3);
+        pose.pose.position.y = m_path(0, 4);
+        pose.pose.position.z = m_path(0, 5);
+
+        win_ctr.poses.push_back(pose);
+
+        _win_ctr_vis_pub.publish(win_ctr);
     }
     
     void setLaserScanFilterSetting(double step, double resolution)

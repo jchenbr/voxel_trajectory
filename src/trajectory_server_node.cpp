@@ -1,6 +1,7 @@
 
 //#define _TRAJECTORY_TRAJECTROY_USE_MAVLINK_MSG_
 #define _TRAJECTORY_USE_VISUALIZATION_
+#define _TRAJECTORY_GENERATOR_FLAG_NO_INFLATION_
 
 #include "voxel_trajectory/voxelserver.h"
 #include "voxel_trajectory/voxelmacro.h"
@@ -186,9 +187,9 @@ public:
 
     void publishDesiredState()
     {
-       ROS_WARN("[TRAJ_SERVER] BEFORE go to publish desired state!");
+       //ROS_WARN("[TRAJ_SERVER] BEFORE go to publish desired state!");
        if (!_has_odom) return ; 
-       ROS_WARN("[TRAJ_SERVER] go to publish desired state!");
+       //ROS_WARN("[TRAJ_SERVER] go to publish desired state!");
        // to do : get the desired state from the _core
        if (_has_traj)
        {
@@ -254,8 +255,8 @@ public:
            }
 
            _desired_state_pub.publish(_pos_cmd);
-           ROS_INFO("[TRAJ] Published desired states, at [%.3lf %.3lf %.3lf]", 
-                  _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z);
+       //    ROS_INFO("[TRAJ] Published desired states, at [%.3lf %.3lf %.3lf]", 
+       //           _pos_cmd.position.x, _pos_cmd.position.y, _pos_cmd.position.z);
        }
     }
 
@@ -578,7 +579,7 @@ public:
 
     void rcvDestinationCallback(const geometry_msgs::Point & pt)
     {
-        if (!_has_map) return ;
+        if (!_has_map || !_has_odom) return ;
         _pos_cmd.trajectory_id = ++_traj_id;
         
         vector<double> state = 
@@ -625,7 +626,7 @@ public:
 
     void rcvWaypointsCallback(const nav_msgs::Path & wp)
     {
-        if (!_has_map) return ;
+        if (!_has_map || !_has_odom) return ;
         _pos_cmd.trajectory_id = ++_traj_id;
 
         vector<double> state = 
@@ -753,7 +754,7 @@ public:
         _traj_vis.header.stamp       = _odom.header.stamp;
         _traj_vis.header.frame_id    = "/map";
 
-        _traj_vis.ns = "trajectory/trajectory";
+        _traj_vis.ns = "no_inflation/trajectory";
         _traj_vis.id = 0;
         _traj_vis.type = visualization_msgs::Marker::SPHERE_LIST;
         _traj_vis.action = visualization_msgs::Marker::ADD;
@@ -765,9 +766,9 @@ public:
         _traj_vis.pose.orientation.z = 0.0;
         _traj_vis.pose.orientation.w = 1.0;
         _traj_vis.color.r = 1.0;
-        _traj_vis.color.g = 0.0;
+        _traj_vis.color.g = 0.5;
         _traj_vis.color.b = 0.0;
-        _traj_vis.color.a = 0.7;
+        _traj_vis.color.a = 0.5;
 
 
 

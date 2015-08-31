@@ -28,7 +28,7 @@ include_directories(
 include_directories(VoxelTrajectory/include)
 
 # for c++
-set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "-std=c++11 -O3 ${CMAKE_CXX_FLAGS}")
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -126,6 +126,7 @@ include_directories(
 add_library(octomap_		src/voxel_trajectory/octomap.cpp)
 add_library(voxelgraph_		src/voxel_trajectory/voxel_graph.cpp)
 add_library(trajectorygenerator_	src/voxel_trajectory/trajectorygenerator.cpp)
+add_library(trajectorygenerator_no_inflation	src/voxel_trajectory/trajectorygenerator_no_inflation.cpp)
 
 ## Declare a cpp executable
 # add_executable(voxel_trajecory_node src/voxel_trajecory_node.cpp)
@@ -209,7 +210,7 @@ target_link_libraries(trajectory_server_node
     ${catkin_LIBRARIES}
 
     octomap_
-    trajectorygenerator_
+    trajectorygenerator_no_inflation
 
     ooqpgensparse
     ooqpsparse
