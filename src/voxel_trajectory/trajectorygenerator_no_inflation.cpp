@@ -16,8 +16,8 @@
 #include <eigen3/Eigen/Eigenvalues>
 #include <eigen3/Eigen/Sparse>
 
-#define _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE__
-//#define _TRAJECTORY_GENERATOR_FLAG_NO_INFLATION__
+#define _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE_
+#define _TRAJECTORY_GENERATOR_FLAG_NO_INFLATION_
 
 #include <ooqp/QpGenData.h>
 #include <ooqp/QpGenVars.h>
@@ -998,7 +998,7 @@ namespace VoxelTrajectory
         return CI;
     }
 
-#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE__
+#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE_
 
 static int _error_code = 0;
 
@@ -1328,7 +1328,7 @@ static int _error_code = 0;
             clog<< "CI:"<<endl; printPr(CI);
 #endif
 
-#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE__
+#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE_
             D   = getPolyDer(Q, CE, CI);
 #endif
 
