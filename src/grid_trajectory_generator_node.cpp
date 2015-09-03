@@ -14,6 +14,7 @@
 //#include "pcl/io/pcd_io.h"
 //#include "pcl/point_types.h"
 // standard messages
+#include "std_msgs/String.h"
 #include "sensor_msgs/PointCloud2.h"
 #include "sensor_msgs/PointCloud.h"
 #include "sensor_msgs/LaserScan.h"
@@ -31,6 +32,7 @@
 #include <vector>
 #include <set>
 #include <deque>
+#include <sstream>
 
 
 
@@ -64,6 +66,8 @@ private:
     ros::Publisher _win_ctr_vis_pub;
 
     ros::Publisher _laser_vis_pub;
+
+    ros::Publisher _debug_pub;
 
     // flags 
     bool _has_odom = false;
@@ -162,6 +166,8 @@ public:
             handle.advertise<visualization_msgs::Marker>("laser_points_vis", 2);
         _win_ctr_vis_pub = 
             handle.advertise<nav_msgs::Path>("window_center_points_vis", 2);
+        _debug_pub = 
+            handle.advertise<std_msgs::String>("debug_info", 50);
 
         // others
         _vis_map_timer = 
@@ -174,19 +180,24 @@ public:
     }
 
     void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.1, 
-            double max_vel = 1.0, double max_acc = 1.0)
+            double max_vel = 1.0, double max_acc = 1.0,
+            double f_vel = 1.0, double f_acc = 1.0)
     {
         _core->setMapBoundary(bdy);
         _core->setResolution(_resolution = resolution);
         _core->setMargin(_safe_margin = safe_margin);
         _core->setMaxVelocity(_max_vel = max_vel);
         _core->setMaxAcceleration(_max_acc = max_acc);
+        _core->setFlightVeloctiy(f_vel);
+        _core->setFlightAcceleration(f_acc);
         
         _core_no_inflation->setMapBoundary(bdy);
         _core_no_inflation->setResolution(_resolution);
         _core_no_inflation->setMargin(_safe_margin);
         _core_no_inflation->setMaxVelocity(_max_vel);
         _core_no_inflation->setMaxAcceleration(_max_acc);
+        _core_no_inflation->setFlightVeloctiy(f_vel);
+        _core_no_inflation->setFlightAcceleration(f_acc);
 
         _has_map = true;
     
@@ -407,8 +418,14 @@ public:
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_z] - _EPS);
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_z] + _EPS);
         }
+        
+        ros::Time pre_time = ros::Time::now();
         _core->addMapBlock(blk);
         _core_no_inflation->addMapBlock(blk_no_inflation);
+
+        std_msgs::String debug_info;
+        debug_info.data = "The_insertion_duration_: "  + to_string((ros::Time::now() - pre_time).toSec());
+        _debug_pub.publish(debug_info);
 
         checkHalfWay();
 
@@ -530,8 +547,15 @@ public:
             blk_no_inflation.push_back(pt(_DIM_z) + _EPS);
         }
         //_laser_vis_pub.publish(mk);
+        ros::Time pre_insertion;
         _core->addMapBlock(blk);
+        ros::Duration insertion_duration = ros::Time::now() - pre_insertion;
+
         _core_no_inflation->addMapBlock(blk_no_inflation);
+
+        std_msgs::String debug_info;
+        debug_info.data = "The_scan_duration_: "  + to_string(insertion_duration.toSec());
+        _debug_pub.publish(debug_info);
 
         checkHalfWay();
 
@@ -722,7 +746,9 @@ public:
 
         ROS_INFO("[GENERATOR] Generating the trajectory.");
 
-        if (_core->setWayPoints(state, _waypoints, _odom.header.stamp.toSec(), _arr_time) != 2)
+        vector<double> cost_time;
+        if (_core->setWayPointsRec(state, _waypoints, _odom.header.stamp.toSec(), 
+                    _arr_time, cost_time) != 2)
         {
             _arr_time.clear();
             _waypoints.clear();
@@ -743,7 +769,14 @@ public:
             _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ADD;
             _traj_pub.publish(_traj); 
             ROS_INFO("[GENERATOR] Published the trajectory.");
-       }
+
+            std_msgs::String debug_info;
+            stringstream sin;
+            sin << "The_Trajectory_Generation_Duration: " << 
+                cost_time[0] << " " << cost_time[1] << " " << cost_time[2];
+            debug_info.data = sin.str();
+            _debug_pub.publish(debug_info);
+        }
 
         _has_traj = true;
         ROS_INFO("[GENERATOR] Starting visualization.");
@@ -755,8 +788,8 @@ public:
         ROS_INFO("[GENERATOR] Inflated path visualzation finished.");
         visCheckpoint();
         ROS_INFO("[GENERATOR] Checkpoints visualzation finished.");
-        visWindowCenter();
-        ROS_INFO("[GENERATOR] Windows' center points published.");
+        //visWindowCenter();
+        //ROS_INFO("[GENERATOR] Windows' center points published.");
     }
 
     void disableVisualization()
@@ -1125,7 +1158,7 @@ int main(int argc, char ** argv)
 
     bool is_vis;
     double bdy[_TOT_BDY], resolution, safe_margin;
-    double max_vel, max_acc;
+    double max_vel, max_acc, flight_vel, flight_acc;
     double flight_height_limit;
     double extra_obstacle_heigt;
     double allowed_ground_height;
@@ -1142,6 +1175,8 @@ int main(int argc, char ** argv)
     handle.param("map/safe_margin", safe_margin, 0.3);
     handle.param("max_velocity", max_vel, 1.0);
     handle.param("max_acceleration", max_acc, 1.0);
+    handle.param("flight_velocity", flight_vel, max_vel);
+    handle.param("flight_acceleration", flight_acc, max_acc);
     handle.param("setting/flight_height_limit", flight_height_limit, -1e7);
     handle.param("setting/extra_obstacle_height", extra_obstacle_heigt, 0.0);
     handle.param("setting/allowed_ground_height", allowed_ground_height, 1e7);
@@ -1151,7 +1186,7 @@ int main(int argc, char ** argv)
 
     ROS_INFO("[TRAJ_SERVER] vel = %.3lf acc = %.3lf", max_vel, max_acc);
 
-    generator.buildMap(bdy, resolution, safe_margin, max_vel, max_acc);
+    generator.buildMap(bdy, resolution, safe_margin, max_vel, max_acc, flight_vel, flight_acc);
     generator.setFlightHeightLimit(flight_height_limit);
     generator.set2DLaserDataSetting(extra_obstacle_heigt, allowed_ground_height);
     generator.setLaserScanFilterSetting(laser_step, laser_resolution);
