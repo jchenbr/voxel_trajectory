@@ -51,6 +51,7 @@ const static int _BUFF_SIZE = 256;
 static char buffer[_BUFF_SIZE] = "\0";
 
 static double max_vel = 1.0, max_acc = 1.0;
+static double f_vel = 1.0, f_acc = 1.0;
     
 namespace VoxelTrajectory
 {
@@ -82,8 +83,8 @@ namespace VoxelTrajectory
         double Vel_t    = direct.dot(vel1);
         double aVel_s   = abs(Vel_s);
         double aVel_t   = abs(Vel_t);
-        double maxVel   = max_vel * _PLAN_RATE;
-        double maxAcc   = max_acc * _PLAN_RATE;
+        double maxVel   = f_vel * _PLAN_RATE;
+        double maxAcc   = f_acc * _PLAN_RATE;
 
         double t0, t1, t2, t3;
 
@@ -928,7 +929,7 @@ namespace VoxelTrajectory
                 for (int k = dgr - 1; k < N; k++)
                     to_add.insert(i_ci, it -> first * N + k) = -coeff(k) * t(k);
 
-                clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
+                //clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
 
                 b(i_ci++)   = -Lim[dgr - 2] * (1.0 - _SAFE_RATE);
             }
@@ -950,7 +951,7 @@ namespace VoxelTrajectory
                 for (int k = dgr - 1; k < N; k++)
                     to_add.insert(i_ci, it -> first * N + k) = coeff(k) * t(k);
 
-                clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
+                //clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
 
                 b(i_ci++)   = Lim[dgr - 2] * (1.0 - _SAFE_RATE);
             }
@@ -1395,7 +1396,7 @@ static int _error_code = 0;
                             acc.row(dim),
                             coeff_t);
             _error_sum += _error_code;
-            clog << "[ERROR] code = " << _error_code <<endl;
+            //clog << "[ERROR] code = " << _error_code <<endl;
         }
         _error_code = _error_sum;
 
@@ -1409,6 +1410,8 @@ static int _error_code = 0;
         const MatrixXd &acc,
         const double maxVel,
         const double maxAcc,
+        const double fVel,
+        const double fAcc,
         double & coeff_t) 
     {
         assert(PBE.cols() == _TOT_BDY && inflated_path.cols() == _TOT_BDY);
@@ -1421,6 +1424,8 @@ static int _error_code = 0;
         // init()
         max_vel = maxVel;
         max_acc = maxAcc;
+        f_vel = fVel;
+        f_acc = fAcc;
         retInit(PBE, inflated_path, p_s, p_t, B, B_, E);
 
         // allocate time for each segment

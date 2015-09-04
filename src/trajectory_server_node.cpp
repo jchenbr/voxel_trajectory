@@ -5,6 +5,7 @@
 
 #include "voxel_trajectory/voxelserver.h"
 #include "voxel_trajectory/voxelmacro.h"
+#include "voxel_trajectory//rrt_planner.h"
 
 // ros tools
 #include "ros/ros.h"
@@ -62,6 +63,7 @@ private:
     ros::Publisher _inflated_path_vis_pub;
 
     ros::Publisher _laser_vis_pub;
+    ros::Publisher _rrt_path_pub;
 
     // flags 
     bool _has_odom = false;
@@ -104,6 +106,8 @@ private:
     
     // otheros
     ros::Timer _vis_map_timer;
+
+    VoxelTrajectory::RRTPlannerManager * _planner;
 
     ros::Time _last_scan_stamp;
     double _laser_scan_step = 0.2;
@@ -150,6 +154,8 @@ public:
             handle.advertise<sensor_msgs::PointCloud2>("checkpoints_vis", 2);
         _laser_vis_pub = 
             handle.advertise<visualization_msgs::Marker>("laser_points_vis", 2);
+        _rrt_path_pub = 
+            handle.advertise<nav_msgs::Path>("rrt_path", 2);
 
         // others
         _vis_map_timer = 
@@ -157,16 +163,29 @@ public:
 
         _last_scan_stamp = ros::TIME_MIN;
 
+        ROS_WARN("[NO_INFLATION] prepraring rrt planner ..");
+        auto validator = [&](double x, double y, double z)->bool
+        {
+            return _core->isVaild3DPoint(x, y, z);
+        };
+        ROS_WARN("[NO_INFLATION] setting up rrt planner ..");
+
+        _planner = new VoxelTrajectory::RRTPlannerManager(validator);
+
+        ROS_WARN("[NO_INFLATION] rrt planner already.");
     }
 
     void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.1, 
-            double max_vel = 1.0, double max_acc = 1.0)
+            double max_vel = 1.0, double max_acc = 1.0,
+            double flight_vel = 1.0, double flight_acc = 1.0)
     {
         _core->setMapBoundary(bdy);
         _core->setResolution(_resolution = resolution);
         _core->setMargin(_safe_margin = safe_margin);
         _core->setMaxVelocity(_max_vel = max_vel);
         _core->setMaxAcceleration(_max_acc = max_acc);
+        _core->setFlightVelocity(flight_vel);
+        _core->setFlightAcceleration(flight_acc);
         _has_map = true;
     
         double pos_gain[_TOT_DIM] = {3.7, 3.7, 5.2};
@@ -681,6 +700,53 @@ public:
         ROS_INFO("[TRAJ] Inflated path visualzation finished.");
         visCheckpoint();
         ROS_INFO("[TRAJ] Checkpoints visualzation finished.");
+        //publishRRTWaypoints(wp);
+    }
+
+    void publishRRTWaypoints(const nav_msgs::Path & wp)
+    {
+        if (wp.poses.size() == 0) return ;
+
+        Eigen::Vector3d src(
+             _odom.pose.pose.position.x,
+             _odom.pose.pose.position.y,
+             _odom.pose.pose.position.z);
+
+        Eigen::Vector3d dest(
+                wp.poses[0].pose.position.x,
+                wp.poses[0].pose.position.y,
+                wp.poses[0].pose.position.z);
+
+        vector<Eigen::Vector3d> pts;
+        if (!_planner->planWithSrcDest(src, dest, pts)) return ;
+
+        clog << "tot num : " << pts.size() << endl;
+        clog << "src : \n " << src << "\nbeg : \n" << pts[0] << endl; 
+        clog << "dest : \n " << dest << "\nend : \n" << pts.back() << endl; 
+        clog << "dist " << (dest - pts.back()).norm() << endl;
+
+        nav_msgs::Path path;
+        geometry_msgs::PoseStamped pose;
+
+        path.header.frame_id = "/map";
+        path.header.stamp = ros::Time::now();
+        pose.header = path.header;
+
+        path.poses.clear();
+        path.poses.reserve(pts.size());
+        for (size_t idx = 0; idx < pts.size(); ++idx)
+        {
+            if ((pts[idx] - src).norm() < 0.1) continue;
+            pose.pose.position.x = pts[idx][_DIM_x];
+            pose.pose.position.y = pts[idx][_DIM_y];
+            pose.pose.position.z = pts[idx][_DIM_z];
+            path.poses.push_back(pose);
+        }
+        //pose.pose.position.x = src[_DIM_x];
+        //pose.pose.position.y = src[_DIM_y];
+        //pose.pose.position.z = src[_DIM_z];
+        //path.poses.push_back(pose);
+        _rrt_path_pub.publish(path);
     }
 
     void disableVisualization()
@@ -965,6 +1031,7 @@ int main(int argc, char ** argv)
     bool is_vis;
     double bdy[_TOT_BDY], resolution, safe_margin;
     double max_vel, max_acc;
+    double flight_vel, flight_acc;
     double flight_height_limit;
     double extra_obstacle_heigt;
     double allowed_ground_height;
@@ -981,6 +1048,8 @@ int main(int argc, char ** argv)
     handle.param("map/safe_margin", safe_margin, 0.3);
     handle.param("max_velocity", max_vel, 1.0);
     handle.param("max_acceleration", max_acc, 1.0);
+    handle.param("flight_velocity", flight_vel, max_vel);
+    handle.param("flight_acceleration", flight_acc, max_acc);
     handle.param("setting/flight_height_limit", flight_height_limit, -1e7);
     handle.param("setting/extra_obstacle_height", extra_obstacle_heigt, 0.0);
     handle.param("setting/allowed_ground_height", allowed_ground_height, 1e7);
@@ -990,7 +1059,7 @@ int main(int argc, char ** argv)
 
     ROS_INFO("[TRAJ_SERVER] vel = %.3lf acc = %.3lf", max_vel, max_acc);
 
-    server.buildMap(bdy, resolution, safe_margin, max_vel, max_acc);
+    server.buildMap(bdy, resolution, safe_margin, max_vel, max_acc, flight_vel, flight_acc);
     server.setFlightHeightLimit(flight_height_limit);
     server.set2DLaserDataSetting(extra_obstacle_heigt, allowed_ground_height);
     server.setLaserScanFilterSetting(laser_step, laser_resolution);

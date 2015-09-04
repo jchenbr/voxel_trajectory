@@ -34,8 +34,8 @@ private:
         MatrixXd P, path, inflated_path;
         VectorXd T;
 
-        double max_acc;
-        double max_vel;
+        double max_acc, max_vel;
+        double flight_vel, flight_acc;
         double resolution;
         double margin;
         double init_time, final_time;
@@ -100,6 +100,8 @@ public:
 
             max_acc = 1.0;
             max_vel = 1.0;
+            flight_vel = 1.0;
+            flight_acc = 1.0;
             resolution  = 0.2;
             margin  = 0.02;
             voxel_map = NULL; 
@@ -174,6 +176,12 @@ public:
             return false;
         }
 
+	bool isVaild3DPoint(double x, double y, double z)
+        {
+            double pt[_TOT_DIM]  {x, y, z};
+            return !voxel_map->testObstacle(pt);
+        }
+
         MatrixXd getInflatedPath(const MatrixXd & path)
         {
                 int m = path.rows() >> 1;
@@ -181,8 +189,8 @@ public:
 #if 1
                 auto within = [&](double pt[_TOT_DIM], double bdy[_TOT_BDY])
                 {
-                    for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
-                    for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
+                    //for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
+                    //for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
                     for (int dim = 0; dim < _TOT_BDY; ++dim)
                     {
                         if (abs(pt[dim >> 1] - bdy[dim]) < _eps) return dim;
@@ -258,13 +266,13 @@ public:
                     }
                     //clog << endl;
 
-                    voxel_map->inflateBdy(bdy, neighbor);
+                    voxel_map->inflateBdy(bdy, neighbor, 120);
 
                     for (int dim = 0; dim < _TOT_BDY; ++dim)
                         if (neighbor[dim] != 0)
                         {
                             neighbor[dim] = 0;
-                            voxel_map->inflateBdy(bdy, neighbor, 12);
+                            voxel_map->inflateBdy(bdy, neighbor, 20);
                             neighbor[dim] = (dim & 1) ? 1 : -1;
                         }
                     //clog << "[VOXEL_SERVER] neighbor inflation done." << endl;
@@ -277,7 +285,7 @@ public:
                        // clog << "[!!] drc = " << drc << endl;
                         memset(direction, 0, sizeof(direction));
                         direction[drc] = (drc & 1) ? 1 : -1;
-                        voxel_map->inflateBdy(bdy, direction, 12);
+                        voxel_map->inflateBdy(bdy, direction, 20);
                     }
                     //clog << "[VOXEL_SERVER] one direction inflation done." << endl;
                     //clog << "[VOXEL_SERVER] " << 
@@ -296,7 +304,7 @@ public:
                     // visualize it.
                     //publishGrid(bdy, iRow);
                 }
-                clog << "[VOXEL_SERVER] inflated Path : \n" << inflated_path << endl;
+                //clog << "[VOXEL_SERVER] inflated Path : \n" << inflated_path << endl;
 #endif
                 return inflated_path;
         }
@@ -356,7 +364,7 @@ public:
             path.block(1, 0, m, _TOT_BDY) << node;
             // set up the window
             path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
-            clog << "[VOXEL_SERVER] PATH : \n" << path << endl;
+            //clog << "[VOXEL_SERVER] PATH : \n" << path << endl;
 
             inflated_path = getInflatedPath(path);
 
@@ -373,7 +381,8 @@ public:
             VoxelTrajectory::TrajectoryGenerator traj_gen;
             pair<MatrixXd, VectorXd> traj = 
                traj_gen.genPolyCoeffTime(path, inflated_path, 
-                       Vel, Acc, max_vel, max_acc, coeff_t);
+                       Vel, Acc, max_vel, max_acc, 
+                       flight_vel, flight_acc, coeff_t);
 
 
             P   = traj.first;
@@ -381,7 +390,139 @@ public:
 
             if (T(0) < 0) 
             {
-                clog << "[WARN] No Suitable Trajectory !";
+                ROS_WARN_STREAM("[WARN] No Suitable Trajectory !");
+                return _TRAJ_NULL;
+            }
+
+            hasTraj = true;
+            
+            // record the important time
+            nTraj   = T.rows();
+
+            init_time = init_T;
+            final_time = init_T + T.sum();
+
+            arr_time.clear();
+            double tmp_time = init_time;
+            for (size_t iRow = m + 1; iRow < m + m; ++iRow)
+            {
+                tmp_time += T(iRow - m - 1);
+                if (path(iRow, _BDY_X) - path(iRow, _BDY_x) < _eps_pos &&
+                    path(iRow, _BDY_Y) - path(iRow, _BDY_y) < _eps_pos &&
+                    path(iRow, _BDY_Z) - path(iRow, _BDY_z) < _eps_pos)
+                {
+                    arr_time.push_back(tmp_time);
+                }
+            }
+            arr_time.push_back(final_time);
+
+            // #3. scaling rate
+            coeff_t = 1.0 / coeff_t;
+            vector<double> state = getDesiredState(init_time);
+            if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
+            coeff_t = 1.0;
+
+            //clog << "coeff t = " << coeff_t << endl;
+            //state = getDesiredState(final_time);
+            //clog << "state : \n";
+            //for (int i = 0; i < 9; i++) clog << state[i] << ", ";
+            //clog << endl;
+
+
+            return ret;
+        }
+
+        int setWayPointsRec(
+                const vector<double> & p_s,
+                const vector<double> wp,
+                double init_T,
+                vector<double> & arr_time,
+                vector<double> & cost_time)
+        {
+            assert(p_s.size() == _TOT_DIM * 3);
+            assert(wp.size() % _TOT_DIM == 0);
+            addMapBlock(vector<double>(0));
+            
+            int ret = _TRAJ_SUCC, n = wp.size() / _TOT_DIM, m = 0;
+            
+            vector<MatrixXd> vec_edge; 
+            vector<MatrixXd> vec_node;
+
+            double p[2][_TOT_DIM] = {p_s[0], p_s[1], p_s[2], wp[0], wp[1], wp[2]};
+
+            // #1. search for the path & inflation
+            ros::Time prv_time = ros::Time::now();
+            for (int idx = 0; idx < n; ++idx)
+            {
+                p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
+                p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
+                p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
+                ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
+                auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
+                if (edge_node.first.rows() == 0) 
+                {
+                    ROS_WARN("[VOXEL_SERVER] Can't find a path.");
+                    return -1;
+                }
+                vec_edge.push_back(edge_node.first);
+                vec_node.push_back(edge_node.second);
+                m += edge_node.second.cols();
+            }
+
+            cost_time.push_back((ros::Time::now() - prv_time).toSec());
+            prv_time = ros::Time::now();
+
+            MatrixXd edge(m + 1, _TOT_BDY), node(m, _TOT_BDY);
+
+            m = 0;
+            for (int idx = 0; idx < n; ++idx)
+            {
+                int c = vec_node[idx].cols();
+                edge.block(m, 0, c + 1, _TOT_BDY) << vec_edge[idx].transpose();
+                node.block(m, 0, c, _TOT_BDY) << vec_node[idx].transpose();
+                m += c;
+            }
+            path.resize(m << 1, _TOT_BDY);
+            // set up the start and the final position
+            path.row(0) << p_s[_DIM_x], p_s[_DIM_y], p_s[_DIM_z], 
+                wp[(n - 1) * _TOT_DIM + _DIM_x], 
+                wp[(n - 1) * _TOT_DIM + _DIM_y], 
+                wp[(n - 1) * _TOT_DIM + _DIM_z]; 
+            // set up the box
+            path.block(1, 0, m, _TOT_BDY) << node;
+            // set up the window
+            path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
+            ROS_INFO_STREAM("[VOXEL_SERVER] PATH : \n" << path << endl);
+
+            inflated_path = getInflatedPath(path);
+            cost_time.push_back((ros::Time::now() - prv_time).toSec());
+            prv_time = ros::Time::now();
+
+            // #2. trajectory generation
+            MatrixXd Vel(_TOT_DIM, 2);
+            MatrixXd Acc(_TOT_DIM, 2);
+
+            Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
+            Vel.col(1) << 0.0, 0.0, 0.0;
+
+            Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
+            Acc.col(1) << 0.0, 0.0, 0.0;
+
+            VoxelTrajectory::TrajectoryGenerator traj_gen;
+            pair<MatrixXd, VectorXd> traj = 
+               traj_gen.genPolyCoeffTime(path, inflated_path, 
+                       Vel, Acc, max_vel, max_acc,
+                       flight_vel, flight_acc, coeff_t);
+
+            cost_time.push_back((ros::Time::now() - prv_time).toSec());
+
+
+            P   = traj.first;
+            T   = traj.second;
+
+            if (T(0) < 0) 
+            {
+                ROS_WARN_STREAM("[WARN] No Suitable Trajectory !");
                 return _TRAJ_NULL;
             }
 
@@ -442,7 +583,7 @@ public:
             MatrixXd Acc (_TOT_DIM, 2); 
 
             do{
-                // Here's some ugly construction due to the elder version.
+                // Here's some ugly construction due to the earlier version.
                 auto edge_node = voxel_map->getPath(p[0], p[1]);
                 auto & edge = edge_node.first;
                 auto & node = edge_node.second;
@@ -456,7 +597,7 @@ public:
 
                 if (m < 1)
                 {
-                    clog << "[WRONG] ILLEGAL POINTS!" << endl;
+                    ROS_WARN_STREAM("[WRONG] ILLEGAL POINTS!");
                     return _TRAJ_NULL;
                 }
 
@@ -469,7 +610,7 @@ public:
                 // set up the window
                 path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.transpose().block(1, 0, m - 1, _TOT_BDY);
 
-                clog << "[ PATH ]: \n" << path << endl;
+                ROS_INFO_STREAM( "[ PATH ]: \n" << path << endl );
 
                 // the matrix for inflation
                 inflated_path = getInflatedPath(path);
@@ -484,14 +625,15 @@ public:
                 // generate the trajectory
                 pair<MatrixXd, VectorXd> traj = 
                    traj_gen.genPolyCoeffTime(path, inflated_path, 
-                           Vel, Acc, max_vel, max_acc, coeff_t);
+                       Vel, Acc, max_vel, max_acc,
+                       flight_vel, flight_acc, coeff_t);
 
                 P   = traj.first;
                 T   = traj.second;
 
                 if (T(0) < 0) 
                 {
-                    clog << "[WARN] No Suitable Trajectory !";
+                    ROS_WARN_STREAM("[WARN] No Suitable Trajectory !");
                     return _TRAJ_NULL;
                 }
             } while (T(0) < 0);
@@ -602,6 +744,12 @@ public:
         //> set max veloctiy
         void setMaxVelocity(double vel) 
         {this->max_vel   = vel;}
+
+        void setFlightVelocity(double vel)
+        {this->flight_vel = vel;}
+
+        void setFlightAcceleration(double acc)
+        {this->flight_acc = acc;}
 
         //> set margin on voxel
         void setMargin(double margin) 

@@ -19,6 +19,8 @@ public:
             const Eigen::MatrixXd &acc,
             const double maxVel,
             const double maxAcc,
+            const double fVel,
+            const double fAcc,
             double & coeff_t);
    };
 }

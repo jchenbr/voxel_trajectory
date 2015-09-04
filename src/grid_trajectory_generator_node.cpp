@@ -188,7 +188,7 @@ public:
         _core->setMargin(_safe_margin = safe_margin);
         _core->setMaxVelocity(_max_vel = max_vel);
         _core->setMaxAcceleration(_max_acc = max_acc);
-        _core->setFlightVeloctiy(f_vel);
+        _core->setFlightVelocity(f_vel);
         _core->setFlightAcceleration(f_acc);
         
         _core_no_inflation->setMapBoundary(bdy);
@@ -196,7 +196,7 @@ public:
         _core_no_inflation->setMargin(_safe_margin);
         _core_no_inflation->setMaxVelocity(_max_vel);
         _core_no_inflation->setMaxAcceleration(_max_acc);
-        _core_no_inflation->setFlightVeloctiy(f_vel);
+        _core_no_inflation->setFlightVelocity(f_vel);
         _core_no_inflation->setFlightAcceleration(f_acc);
 
         _has_map = true;
@@ -322,6 +322,8 @@ public:
                         _waypoints[i * _TOT_DIM + _DIM_z]); 
             }
 #endif
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
+            _traj_pub.publish(_traj);
 
             _final_time = ros::TIME_MIN;
             
@@ -353,8 +355,6 @@ public:
                 path.poses[idx - vaild_id].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
             }
 
-            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
-            _traj_pub.publish(_traj);
 
             rcvWaypointsCallback(path);
         }

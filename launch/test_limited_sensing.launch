@@ -15,7 +15,9 @@
                     value = "$(find voxel_trajectory)/data/test_case_2/obstacle.txt" />
 
         <remap  from = "~odometry"              to = "/state_ukf/odom" />
+<!--
         <remap  from = "~sensed_points"         to = "/trajectory_generator/obstacle_points"/>
+-->
 	<remap  from = "~obstacle_points"       to = "~obstacle_points"/>
 	<remap  from = "~obstacle_blocks"       to = "~obstacle_blocks"/>
     </node>

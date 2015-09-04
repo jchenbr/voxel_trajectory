@@ -120,6 +120,7 @@ public:
         const float * data = reinterpret_cast<const float *>(blks_cloud.data.data());
         vector<double> blk;
         blk.reserve(blks_cloud.width * _TOT_BDY);
+#if 0
         for (size_t idx = 0; idx < blks_cloud.width; ++idx)
         {
             blk.push_back(data[idx * _TOT_BDY + _BDY_x] - _EPS);
@@ -129,6 +130,30 @@ public:
             blk.push_back(data[idx * _TOT_BDY + _BDY_z] - _EPS);
             blk.push_back(data[idx * _TOT_BDY + _BDY_Z] + _EPS);
         }
+#else
+        for (size_t idx = 0; idx < blks_cloud.width; ++idx)
+        {
+            double X = 0.5 * (data[idx * _TOT_BDY + _BDY_x] + data[idx * _TOT_BDY + _BDY_X]);
+            double Y = 0.5 * (data[idx * _TOT_BDY + _BDY_y] + data[idx * _TOT_BDY + _BDY_Y]);
+            double x_ = data[idx * _TOT_BDY + _BDY_x] - X;
+            double _x = data[idx * _TOT_BDY + _BDY_X] - X;
+            double y_ = data[idx * _TOT_BDY + _BDY_y] - Y;
+            double _y = data[idx * _TOT_BDY + _BDY_Y] - Y;
+            for (double x = x_; x < _x; x += 0.09)
+                for (double y = y_; y < _y; y += 0.09)
+                {
+                    double yaw = rand() % 360 / 360.0 * 2 * acos(-1.0);
+                    double xx = x * cos(yaw) - y * sin(yaw);
+                    double yy = x * sin(yaw) + y * cos(yaw);
+                    blk.push_back(X + xx - _EPS);
+                    blk.push_back(X + xx + _EPS);
+                    blk.push_back(Y + yy - _EPS);
+                    blk.push_back(Y + yy + _EPS);
+                    blk.push_back(data[idx * _TOT_BDY + _BDY_z] - _EPS);
+                    blk.push_back(data[idx * _TOT_BDY + _BDY_Z] + _EPS);
+                }
+        }
+#endif
         _map->insertBlocks(blk);
     }
 
@@ -151,13 +176,13 @@ public:
                     _odom.pose.pose.position.y + _sensing_radius * cos(ltd) * cos(atd),
                     _odom.pose.pose.position.z + _sensing_radius * sin(ltd)
                 };
-                if (!_map->testObstacle(pt)) continue;
+                if (!_map->testObstacle(pt) || pt[_DIM_z] < 0.0) continue;
                 _sensed_pts.push_back(pt[_DIM_x]);
                 _sensed_pts.push_back(pt[_DIM_y]);
                 _sensed_pts.push_back(pt[_DIM_z]);
             }
         }
-        ROS_INFO("[LIMITED_SENSING] Odometry received, %lu points to be added.", _sensed_pts.size());
+        //ROS_INFO("[LIMITED_SENSING] Odometry received, %lu points to be added.", _sensed_pts.size());
 
         sensor_msgs::PointCloud2 cloud;
         cloud.header.frame_id = "/map";

@@ -1,0 +1,184 @@
+<launch>
+
+    <param name	= "test_mode" value = "4"/>
+    <param name	= "/random_forest/tot_num" value = "180"/>
+
+    <param name	= "/random_forest/h_mean" value = "7"/>
+    <param name	= "/random_forest/h_var" value = "1"/>
+
+    <param name	= "/random_forest/r_mean" value = "0.2"/>
+    <param name	= "/random_forest/r_var" value = "0.5"/>
+
+    <param name	= "/random_forest/H_mean" value = "2"/>
+    <param name	= "/random_forest/H_var" value = "0.5"/>
+
+    <param name	= "/random_forest/W_mean" value = "0.2"/>
+    <param name	= "/random_forest/W_var" value = "0.5"/>
+
+    <param name = "/map_x_lower_bound" value = "-20"/>
+    <param name = "/map_x_upper_bound" value = "20"/>
+    <param name = "/map_y_lower_bound" value = "-20"/>
+    <param name = "/map_y_upper_bound" value = "20"/>
+    <param name = "/map_z_lower_bound" value = "0"/>
+    <param name = "/map_z_upper_bound" value = "40"/>
+
+
+    <node
+      pkg     = "voxel_trajectory"
+      type    = "mission_commander_node"
+      output  = "log"
+      name    = "mission_commander">
+
+<!--
+	    <remap  from = "/trajectory_generator/obstacle_blocks" to = "/trajectory_generator/obstacle_blocks_baned"/>
+-->
+    </node>
+
+    <node 
+ 	    pkg 	= "voxel_trajectory"
+	    type 	= "test_limited_sensing_node"
+ 	    name 	= "limited_sensor"
+	    output  = "log">
+        <param  name = "limited_sensing/sensing_raduis"     value = "3.0"/>
+        <param  name = "limited_sensing/sensing_resolution" value = "0.1"/>
+        <param  name = "limited_sensing/sensing_rate"       value = "5"/>
+
+
+        <param  name = "setting/flight_height_limit" value = "250"/>
+        <param  name = "setting/extra_obstacle_height" value = "2.5"/>
+        <param  name = "setting/allowed_ground_height" value = "0.3"/>
+<!--
+        <param  name = "limited_sensing/obstacle_file"
+                    value = "$(find voxel_trajectory)/data/test_case_2/obstacle.txt" />
+-->
+        <remap  from = "~odometry"              to = "/state_ukf/odom" />
+        <remap  from = "~sensed_points"         to = "~sensed_points"/>
+	<remap  from = "~obstacle_points"       to = "~obstacle_points"/>
+	<remap  from = "~obstacle_blocks"       to = "/trajectory_generator/obstacle_blocks"/>
+    </node>
+
+    <!-- <include file="$(find voxel_trajectory)/launch/sep_traj.launch"/> -->
+    <include file="$(find voxel_trajectory)/launch/sep_quadrotor.launch"/>
+    <include file="$(find voxel_trajectory)/launch/sep_vis.launch"/>
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "grid_trajectory_generator_node"
+        output  = "log"
+        name    = "trajectory_generator">
+
+        <param  name = "init/visualization" value = "true"/>
+
+        <param  name = "setting/flight_height_limit" value = "300"/>
+        <param  name = "setting/extra_obstacle_height" value = "2.5"/>
+        <param  name = "setting/allowed_ground_height" value = "0.3"/>
+        <param  name = "setting/laser_scan_step" value = "0.2"/>
+        <param  name = "setting/laser_scan_resolution" value = "0.05"/>
+
+        <param  name = "map/boundary/lower_x"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_x"  value = "20.0"/>
+        <param  name = "map/boundary/lower_y"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_y"  value = "20.0"/>
+        <param  name = "map/boundary/lower_z"  value = "0.0"/>
+        <param  name = "map/boundary/upper_z"  value = "40.0"/>
+        <param  name = "map/resolution"  value = "0.008"/>
+        <param  name = "map/safe_margin"  value = "0.5"/>
+
+        <param  name = "max_velocity"  value = "3.0"/>
+        <param  name = "max_acceleration"  value = "3.0"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~obstacle_points"   to = "/limited_sensor/sensed_points"/>
+        <remap  from = "~obstacle_blocks"   to = "~obstacle_blocks_baned"/>
+        <remap  from = "~laser_scan"        to = "/scan"/>
+        <remap  from = "~odometry"          to = "/state_ukf/odom"/>
+        <remap  from = "~goal_point"        to = "~goal_point"/>
+        <remap  from = "~waypoints"         to = "/waypoint_generator/waypoints"/>
+
+        <!-- advertised topics -->
+        <remap  from = "~desired_state"     to = "/position_cmd"/>
+        <remap  from = "~trajectory"        to = "~trajectory"/>
+
+        <!-- advertised visualization topics -->
+        <remap  from = "~map_vis"           to = "/trajectory_generator/map_points"/>
+        <remap  from = "~trajectory_vis"    to = "/trajectory_generator/line_strip"/>
+        <remap  from = "~path_vis"          to = "/trajectory_generator/voxel_path"/>
+        <remap  from = "~inflated_path_vis" to = "/trajectory_generator/inflated_path"/>
+        <remap  from = "~checkpoints_vis"   to = "/trajectory_generator/check_point"/>
+    </node>
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "grid_trajectory_server_node"
+        output  = "screen"
+        name    = "trajectory_server">
+        
+        <!-- advertised topics -->
+        <remap  from = "~trajectory"        to = "/trajectory_generator/trajectory"/>
+        <remap  from = "~odometry"          to = "/state_ukf/odom"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~position_command"  to = "/position_cmd"/>
+    </node>
+
+  <!-- Waypoitns Based Trajectory -->   
+  <node pkg="trajectory_generator_cj"
+        name="waypoints_trajectory_generator"
+        type="rrt_trajectory_node"       
+        output="screen">
+        <param  name = "map/boundary/lower_x"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_x"  value = "20.0"/>
+        <param  name = "map/boundary/lower_y"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_y"  value = "20.0"/>
+        <param  name = "map/boundary/lower_z"  value = "0.0"/>
+        <param  name = "map/boundary/upper_z"  value = "40.0"/>
+        <param  name = "map/resolution"  value = "0.008"/>
+        <param  name = "map/safe_margin"  value = "0.5"/>
+
+        <param  name = "max_velocity"  value = "3.0"/>
+        <param  name = "max_acceleration"  value = "3.0"/>
+
+    <remap from="~odom"         to="/state_ukf/odom"/>
+    <remap from="~waypoints"    to="/waypoint_generator/waypoints"/>
+    <remap from="~rcv_obstacle_blocks"    to="/limited_sensor/sensed_points"/>
+
+    <rosparam file="$(find so3_control)/config/gains_hummingbird.yaml"/>   
+
+    <param name="init_height" value="1.0"/>    
+    <param name="init_vel" value="1.0"/>
+
+    <param name="add_waypoint_dist_thr" value="1000.0"/>
+    <param name="add_waypoint_theta_thr" value="1000.0"/>     
+  </node>    
+
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "trajectory_server_node"
+        output  = "log"
+        name    = "no_inflation_trajectory_generator">
+
+        <param  name = "init/visualization" value = "true"/>
+
+        <param  name = "map/boundary/lower_x"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_x"  value = "20.0"/>
+        <param  name = "map/boundary/lower_y"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_y"  value = "20.0"/>
+        <param  name = "map/boundary/lower_z"  value = "0.0"/>
+        <param  name = "map/boundary/upper_z"  value = "40.0"/>
+        <param  name = "map/resolution"  value = "0.008"/>
+        <param  name = "map/safe_margin"  value = "0.5"/>
+
+        <param  name = "max_velocity"  value = "3.0"/>
+        <param  name = "max_acceleration"  value = "3.0"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~obstacle_points"   to = "/limited_sensor/sensed_points"/>
+        <remap  from = "~obstacle_blocks"   to = "~obstacle_blocks_baned"/>
+        <remap  from = "~odometry"          to = "/state_ukf/odom"/>
+        <remap  from = "~goal_point"        to = "~goal_point"/>
+        <remap  from = "~waypoints"         to = "/waypoint_generator/waypoints"/>
+
+    </node>          
+
+</launch>

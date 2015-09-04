@@ -638,8 +638,8 @@ namespace VoxelTrajectory
     pair<Eigen::MatrixXd, Eigen::MatrixXd>
         OctoMap::getPath(const double src[_TOT_DIM], const double dest[_TOT_DIM])
     {
-        clog << "src = " << src[0] << ", " << src[1] << ", " << src[2] << endl;
-        clog << "dest = " << dest[0] << ", " << dest[1] << ", " << dest[2] << endl;
+        //clog << "src = " << src[0] << ", " << src[1] << ", " << src[2] << endl;
+        //clog << "dest = " << dest[0] << ", " << dest[1] << ", " << dest[2] << endl;
         
         if (!within(src, node[_NODE_ROOT].bdy) || !within(dest, node[_NODE_ROOT].bdy))
         {
@@ -648,22 +648,22 @@ namespace VoxelTrajectory
         }
 
 
-        clog << "[OCTOMAP] looking for src and dest." << endl;
+        //clog << "[OCTOMAP] looking for src and dest." << endl;
         auto src_id = queryPoint(_NODE_ROOT, src);
         auto dest_id = queryPoint(_NODE_ROOT, dest);
-        clog << "[OCTOMAP] src and dest have been determined." << endl;
-        clog << "[OCTOMAP] they were marked as " << node[src_id].tag << " and " << node[dest_id].tag << "." << endl;
+        //clog << "[OCTOMAP] src and dest have been determined." << endl;
+        //clog << "[OCTOMAP] they were marked as " << node[src_id].tag << " and " << node[dest_id].tag << "." << endl;
         if (node[src_id].tag != _TAG_EMP || node[dest_id].tag != _TAG_EMP) 
             return make_pair(Eigen::MatrixXd(0, 0), Eigen::MatrixXd(0, 0));
 
-        clog << "[OCTOMAP] id " << src_id << ", " << dest_id << endl;
+        //clog << "[OCTOMAP] id " << src_id << ", " << dest_id << endl;
 
         auto p_src_node = graph_node_ptr[src_id];
         auto p_dest_node = graph_node_ptr[dest_id];
 
-        clog << "[OCTOMAP] address : " << p_src_node << ", " << p_dest_node << endl;
+        //clog << "[OCTOMAP] address : " << p_src_node << ", " << p_dest_node << endl;
 
-        clog << "[OCTOMAP] src : " << p_src_node->id << ", dest : " << p_dest_node->id << endl;
+        //clog << "[OCTOMAP] src : " << p_src_node->id << ", dest : " << p_dest_node->id << endl;
 
         double bdy[_TOT_BDY];
 

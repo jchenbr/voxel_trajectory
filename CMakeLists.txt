@@ -18,9 +18,14 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(Eigen3 REQUIRED )
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
+# OMPL
+find_package(OMPL)
+include_directories(
+    ${OMPL_INCLUDE_DIR}
+)
+
 # for PCL
 find_package(PCL REQUIRED common io)
-
 include_directories(
     ${PCL_INCLUDE_DIRS}
 )
@@ -100,10 +105,10 @@ set(CMAKE_CXX_FLAGS "-std=c++11 -O3 ${CMAKE_CXX_FLAGS}")
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES voxel_trajecory
-#  CATKIN_DEPENDS roscpp senesor_msgs
-#  DEPENDS system_lib
+  INCLUDE_DIRS include
+  LIBRARIES octomap_ voxelgraph_  trajectorygenerator_
+  CATKIN_DEPENDS roscpp 
+  DEPENDS system_lib
 )
 
 ###########
@@ -208,6 +213,7 @@ target_link_libraries(test_limited_sensing_node
 
 target_link_libraries(trajectory_server_node
     ${catkin_LIBRARIES}
+    ${OMPL_LIBRARIES}
 
     octomap_
     trajectorygenerator_no_inflation
