@@ -386,8 +386,15 @@ public:
             pt_no_inflation.push_back(data[idx * _TOT_DIM + _DIM_z] + _EPS);
         }
 
+        ros::Time pre_time = ros::Time::now();
         _core->addMapBlock(pt);
         _core_no_inflation->addMapBlock(pt_no_inflation);
+
+        std_msgs::String debug_info;
+        debug_info.data = "The_insertion_duration_: "  + to_string((ros::Time::now() - pre_time).toSec());
+        _debug_pub.publish(debug_info);
+
+
 
         checkHalfWay();
 
@@ -772,8 +779,14 @@ public:
 
             std_msgs::String debug_info;
             stringstream sin;
-            sin << "The_Trajectory_Generation_Duration: " << 
-                cost_time[0] << " " << cost_time[1] << " " << cost_time[2];
+            sin << "[NEW_TRAJ] The_Trajectory_Generation_Duration: " 
+                << cost_time[_DIM_x] << ", " 
+                << cost_time[_DIM_y] << ", " 
+                << cost_time[_DIM_z] << ".\n"
+                << "[NEW_TRAJ] The new trajectory cost: " 
+                << _core->qp_cost[_DIM_x] << ", "
+                << _core->qp_cost[_DIM_y] << ", "
+                << _core->qp_cost[_DIM_z] << ".";
             debug_info.data = sin.str();
             _debug_pub.publish(debug_info);
         }

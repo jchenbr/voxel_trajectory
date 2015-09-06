@@ -149,6 +149,7 @@ public:
             _cmd.header.stamp = _odom.header.stamp;
             _cmd.header.frame_id = "/map";
             _cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
+            _cmd.trajectory_id = _traj_id;
 
             double t = max(0.0, (_odom.header.stamp - _start_time).toSec());
             if (_odom.header.stamp > _final_time) t = (_final_time - _start_time).toSec();
