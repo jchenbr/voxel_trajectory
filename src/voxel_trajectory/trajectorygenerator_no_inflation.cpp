@@ -52,6 +52,7 @@ static char buffer[_BUFF_SIZE] = "\0";
 
 static double max_vel = 1.0, max_acc = 1.0;
 static double f_vel = 1.0, f_acc = 1.0;
+vector<double> _qp_cost;
     
 namespace VoxelTrajectory
 {
@@ -929,7 +930,7 @@ namespace VoxelTrajectory
                 for (int k = dgr - 1; k < N; k++)
                     to_add.insert(i_ci, it -> first * N + k) = -coeff(k) * t(k);
 
-                clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
+                //clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
 
                 b(i_ci++)   = -Lim[dgr - 2] * (1.0 - _SAFE_RATE);
             }
@@ -951,7 +952,7 @@ namespace VoxelTrajectory
                 for (int k = dgr - 1; k < N; k++)
                     to_add.insert(i_ci, it -> first * N + k) = coeff(k) * t(k);
 
-                clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
+                //clog<<"dgr  = "<< dgr << endl << coeff << endl << t <<endl;
 
                 b(i_ci++)   = Lim[dgr - 2] * (1.0 - _SAFE_RATE);
             }
@@ -1357,10 +1358,11 @@ static int _error_code = 0;
                 else
                     _error_code = 1;
             }
-            clog << "The loop number: " << loop_v << endl;
+            //clog << "The loop number: " << loop_v << endl;
             //clog << "9. check." << endl;
         }
-        clog << "The COST = " << COST.coeff(0,0) << endl;
+        _qp_cost.push_back(COST.coeff(0, 0));
+        //clog << "The COST = " << COST.coeff(0,0) << endl;
 
         //clog << "The _coeff_t: " << _coeff_t << endl;
         coeff_t = max(coeff_t, max(sqrt(_coeff_t(1)), _coeff_t(0)));
@@ -1396,7 +1398,7 @@ static int _error_code = 0;
                             acc.row(dim),
                             coeff_t);
             _error_sum += _error_code;
-            clog << "[ERROR] code = " << _error_code <<endl;
+            //clog << "[ERROR] code = " << _error_code <<endl;
         }
         _error_code = _error_sum;
 
@@ -1417,6 +1419,8 @@ static int _error_code = 0;
         assert(PBE.cols() == _TOT_BDY && inflated_path.cols() == _TOT_BDY);
         assert(vel.rows() == _TOT_DIM && vel.cols() == 2);
         assert(acc.rows() == _TOT_DIM && acc.cols() == 2);
+
+        _qp_cost.clear();
 
         VectorXd p_s, p_t;
         MatrixXd B, B_, E, P;
@@ -1443,7 +1447,7 @@ static int _error_code = 0;
 #else
         P   = getTrajCoeff(p_s, p_t, B_, B, E, T, vel, acc, coeff_t);
 #endif
-
+        this->qp_cost = _qp_cost;
         if (_error_code > 0) T(0) = -1;
         return pair<MatrixXd,VectorXd>(P,T);
     }

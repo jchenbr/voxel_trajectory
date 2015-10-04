@@ -16,7 +16,7 @@
 #include <eigen3/Eigen/Eigenvalues>
 #include <eigen3/Eigen/Sparse>
 
-#define _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE__
+#define _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE_
 //#define _TRAJECTORY_GENERATOR_FLAG_NO_INFLATION__
 
 #include <ooqp/QpGenData.h>
@@ -52,6 +52,7 @@ static char buffer[_BUFF_SIZE] = "\0";
 
 static double max_vel = 1.0, max_acc = 1.0;
 static double f_vel = 1.0, f_acc = 1.0;
+vector<double> _qp_cost;
     
 namespace VoxelTrajectory
 {
@@ -999,7 +1000,7 @@ namespace VoxelTrajectory
         return CI;
     }
 
-#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE__
+#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE_
 
 static int _error_code = 0;
 
@@ -1329,7 +1330,7 @@ static int _error_code = 0;
             clog<< "CI:"<<endl; printPr(CI);
 #endif
 
-#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE__
+#ifdef _TRAJECTORY_GENERATOR_FLAG_USE_SPARSE_
             D   = getPolyDer(Q, CE, CI);
 #endif
 
@@ -1357,10 +1358,11 @@ static int _error_code = 0;
                 else
                     _error_code = 1;
             }
-            clog << "The loop number: " << loop_v << endl;
+            //clog << "The loop number: " << loop_v << endl;
             //clog << "9. check." << endl;
         }
-        clog << "The COST = " << COST.coeff(0,0) << endl;
+        _qp_cost.push_back(COST.coeff(0, 0));
+        //clog << "The COST = " << COST.coeff(0,0) << endl;
 
         //clog << "The _coeff_t: " << _coeff_t << endl;
         coeff_t = max(coeff_t, max(sqrt(_coeff_t(1)), _coeff_t(0)));
@@ -1418,6 +1420,8 @@ static int _error_code = 0;
         assert(vel.rows() == _TOT_DIM && vel.cols() == 2);
         assert(acc.rows() == _TOT_DIM && acc.cols() == 2);
 
+        _qp_cost.clear();
+
         VectorXd p_s, p_t;
         MatrixXd B, B_, E, P;
         VectorXd T;
@@ -1443,7 +1447,7 @@ static int _error_code = 0;
 #else
         P   = getTrajCoeff(p_s, p_t, B_, B, E, T, vel, acc, coeff_t);
 #endif
-
+        this->qp_cost = _qp_cost;
         if (_error_code > 0) T(0) = -1;
         return pair<MatrixXd,VectorXd>(P,T);
     }

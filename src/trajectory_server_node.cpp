@@ -16,6 +16,7 @@
 //#include "pcl/io/pcd_io.h"
 //#include "pcl/point_types.h"
 // standard messages
+#include "std_msgs/String.h"
 #include "sensor_msgs/PointCloud2.h"
 #include "sensor_msgs/PointCloud.h"
 #include "sensor_msgs/LaserScan.h"
@@ -32,6 +33,7 @@
 #include <vector>
 #include <set>
 #include <deque>
+#include <sstream>
 
 
 
@@ -61,6 +63,7 @@ private:
     ros::Publisher _check_point_vis_pub;
     ros::Publisher _path_vis_pub;
     ros::Publisher _inflated_path_vis_pub;
+    ros::Publisher _debug_pub;
 
     ros::Publisher _laser_vis_pub;
     ros::Publisher _rrt_path_pub;
@@ -113,6 +116,7 @@ private:
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
 
+    double _vis_traj_width = 0.10;
 
 public:
 
@@ -156,10 +160,14 @@ public:
             handle.advertise<visualization_msgs::Marker>("laser_points_vis", 2);
         _rrt_path_pub = 
             handle.advertise<nav_msgs::Path>("rrt_path", 2);
+        _debug_pub = 
+            handle.advertise<std_msgs::String>("debug_info", 2);
 
         // others
         _vis_map_timer = 
             handle.createTimer(ros::Duration(1.0), &NodeServer::visMap, this);
+
+        handle.param("vis/trajectory_width", _vis_traj_width, 0.10);
 
         _last_scan_stamp = ros::TIME_MIN;
 
@@ -673,7 +681,10 @@ public:
 
         ROS_INFO("[TRAJ] Generating the trajectory.");
 
-        if (_core->setWayPoints(state, _waypoints, _odom.header.stamp.toSec(), _arr_time) != 2)
+        vector<double> cost_time;
+
+        if (_core->setWayPointsRec(state, _waypoints, _odom.header.stamp.toSec(), 
+                    _arr_time, cost_time) != 2)
         {
             _arr_time.clear();
             _waypoints.clear();
@@ -687,6 +698,19 @@ public:
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = wp.poses.back().pose.position;
             _final_time = ros::Time(_core->getFinalTime());
+
+            stringstream sin;
+            sin << "[OLD_TRAJ] The old trajectory cost : "
+                << _core->qp_cost[_DIM_x] << ", "
+                << _core->qp_cost[_DIM_y] << ", "
+                << _core->qp_cost[_DIM_z] << "." << endl
+                << cost_time[_DIM_x] << ", "
+                << cost_time[_DIM_y] << ", " 
+                << cost_time[_DIM_z] << ".";
+            std_msgs::String debug_info;
+            debug_info.data = sin.str();
+            _debug_pub.publish(debug_info);
+
         }
 
         _has_traj = true;
@@ -824,9 +848,9 @@ public:
         _traj_vis.id = 0;
         _traj_vis.type = visualization_msgs::Marker::SPHERE_LIST;
         _traj_vis.action = visualization_msgs::Marker::ADD;
-        _traj_vis.scale.x = 0.05;
-        _traj_vis.scale.y = 0.05;
-        _traj_vis.scale.z = 0.05;
+        _traj_vis.scale.x = _vis_traj_width;
+        _traj_vis.scale.y = _vis_traj_width;
+        _traj_vis.scale.z = _vis_traj_width;
         _traj_vis.pose.orientation.x = 0.0;
         _traj_vis.pose.orientation.y = 0.0;
         _traj_vis.pose.orientation.z = 0.0;

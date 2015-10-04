@@ -45,6 +45,7 @@ private:
         VoxelTrajectory::OctoMap * voxel_map;
         ros::Publisher * pt_grid_pub = NULL;
 public:
+        vector<double> qp_cost;
 
         // # -1. func for visualization
         // set up grid visualization publisher.
@@ -383,6 +384,7 @@ public:
                traj_gen.genPolyCoeffTime(path, inflated_path, 
                        Vel, Acc, max_vel, max_acc, 
                        flight_vel, flight_acc, coeff_t);
+            qp_cost = traj_gen.qp_cost;
 
 
             P   = traj.first;
@@ -513,6 +515,7 @@ public:
                traj_gen.genPolyCoeffTime(path, inflated_path, 
                        Vel, Acc, max_vel, max_acc,
                        flight_vel, flight_acc, coeff_t);
+            qp_cost = traj_gen.qp_cost;
 
             cost_time.push_back((ros::Time::now() - prv_time).toSec());
 
@@ -627,6 +630,7 @@ public:
                    traj_gen.genPolyCoeffTime(path, inflated_path, 
                        Vel, Acc, max_vel, max_acc,
                        flight_vel, flight_acc, coeff_t);
+                qp_cost = traj_gen.qp_cost;
 
                 P   = traj.first;
                 T   = traj.second;

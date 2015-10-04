@@ -119,6 +119,7 @@ private:
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
 
+    double _vis_traj_width = 0.1;
 
 public:
 
@@ -176,7 +177,7 @@ public:
             handle.createTimer(ros::Duration(1.0), &TrajectoryGenerator::visMapNoInflation, this);
 
         _last_scan_stamp = ros::TIME_MIN;
-
+        handle.param("vis/trajectory_with", _vis_traj_width, 0.1);
     }
 
     void buildMap(double bdy[_TOT_BDY], double resolution = 0.4, double safe_margin = 0.1, 
@@ -936,9 +937,9 @@ public:
         _traj_vis.id = 0;
         _traj_vis.type = visualization_msgs::Marker::SPHERE_LIST;
         _traj_vis.action = visualization_msgs::Marker::ADD;
-        _traj_vis.scale.x = 0.05;
-        _traj_vis.scale.y = 0.05;
-        _traj_vis.scale.z = 0.05;
+        _traj_vis.scale.x = _vis_traj_width;
+        _traj_vis.scale.y = _vis_traj_width;
+        _traj_vis.scale.z = _vis_traj_width;
         _traj_vis.pose.orientation.x = 0.0;
         _traj_vis.pose.orientation.y = 0.0;
         _traj_vis.pose.orientation.z = 0.0;
