@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   quadrotor_msgs
   mavlink_message
   laser_geometry
+  message_generation
 )
 
 find_package(Eigen3 REQUIRED )
@@ -33,7 +34,7 @@ include_directories(
 include_directories(VoxelTrajectory/include)
 
 # for c++
-set(CMAKE_CXX_FLAGS "-std=c++11 -O3 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -76,11 +77,12 @@ set(CMAKE_CXX_FLAGS "-std=c++11 -O3 ${CMAKE_CXX_FLAGS}")
 # )
 
 ## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
+ add_service_files(
+   FILES
+   CheckObstacleByPoints.srv
 #   Service1.srv
 #   Service2.srv
-# )
+ )
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -90,10 +92,11 @@ set(CMAKE_CXX_FLAGS "-std=c++11 -O3 ${CMAKE_CXX_FLAGS}")
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
+ generate_messages(
+   DEPENDENCIES
+   std_msgs
 #   senesor_msgs
-# )
+ )
 
 ###################################
 ## catkin specific configuration ##
@@ -146,7 +149,7 @@ add_executable(mission_commander_node src/mission_commander_node.cpp)
 
 #add_executable(voxel_bridge_node src/voxel_bridge_node.cpp)
 
-add_executable(voxel_bridge_enhanced_node src/voxel_bridge_enhanced_node.cpp)
+#add_executable(voxel_bridge_enhanced_node src/voxel_bridge_enhanced_node.cpp)
 
 add_executable(voxel_set_obstacle_node src/voxel_set_obstacle_node.cpp)
 
@@ -267,9 +270,9 @@ target_link_libraries( mission_commander_node
 #	${catkin_LIBRARIES}
 #)
 
-target_link_libraries( voxel_bridge_enhanced_node
-	${catkin_LIBRARIES}
-)
+#target_link_libraries( voxel_bridge_enhanced_node
+#	${catkin_LIBRARIES}
+#)
 
 target_link_libraries(voxel_set_obstacle_node
     ${catkin_LIBRARIES}

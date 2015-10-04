@@ -25,6 +25,7 @@ private:
 
     double _sensing_radius = 3.0;           // meter
     double _sensing_resolution = 0.1;       // arc
+    double  _sensing_radius_resolution = 0.1;
     int _sensing_rate = 100;                // Hz
     vector<float> _sensed_pts;
 
@@ -49,6 +50,7 @@ public:
 
         handle.param("limited_sensing/sensing_radius", _sensing_radius, 3.0);
         handle.param("limited_sensing/sensing_resolution", _sensing_resolution, 0.1);
+        handle.param("limited_sensing/sensing_radius_resolution", _sensing_radius_resolution, 0.1);
         handle.param("limited_sensing/sensing_rate", _sensing_rate, 100);
 
         string _file;
@@ -162,7 +164,7 @@ public:
         _sensed_pts.reserve(
                 _sensed_pts.size() + 
                 static_cast<int>(
-                    _PI * 2.0 * _PI / (_sensing_resolution * _sensing_resolution)
+                    _PI * 2.0 * _PI * _sensing_radius / (_sensing_resolution * _sensing_resolution * _sensing_radius_resolution)
                     )
                 );
 
@@ -170,16 +172,19 @@ public:
         {
             for (double atd = 0.0; atd  <= 2.0 * _PI; atd += _sensing_resolution)
             {
-                double pt[_TOT_DIM] =
+                for (double r = 0.0; r <= _sensing_radius; r += _sensing_radius_resolution)
                 {
-                    _odom.pose.pose.position.x + _sensing_radius * cos(ltd) * sin(atd),
-                    _odom.pose.pose.position.y + _sensing_radius * cos(ltd) * cos(atd),
-                    _odom.pose.pose.position.z + _sensing_radius * sin(ltd)
-                };
-                if (!_map->testObstacle(pt) || pt[_DIM_z] < 0.0) continue;
-                _sensed_pts.push_back(pt[_DIM_x]);
-                _sensed_pts.push_back(pt[_DIM_y]);
-                _sensed_pts.push_back(pt[_DIM_z]);
+                    double pt[_TOT_DIM] =
+                    {
+                        _odom.pose.pose.position.x + r * cos(ltd) * sin(atd),
+                        _odom.pose.pose.position.y + r * cos(ltd) * cos(atd),
+                        _odom.pose.pose.position.z + r * sin(ltd)
+                    };
+                    if (!_map->testObstacle(pt) || pt[_DIM_z] < 0.0) continue;
+                    _sensed_pts.push_back(pt[_DIM_x]);
+                    _sensed_pts.push_back(pt[_DIM_y]);
+                    _sensed_pts.push_back(pt[_DIM_z]);
+                }
             }
         }
         //ROS_INFO("[LIMITED_SENSING] Odometry received, %lu points to be added.", _sensed_pts.size());

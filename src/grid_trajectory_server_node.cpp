@@ -27,6 +27,7 @@ private:
     Eigen::MatrixXd _coef[_TOT_DIM];
     ros::Time _final_time = ros::TIME_MIN;
     ros::Time _start_time = ros::TIME_MAX;
+    double _start_yaw = 0.0, _final_yaw = 0.0;
 
     // state of the server
     enum ServerState{INIT, TRAJ, HOVER} state = INIT;
@@ -87,7 +88,7 @@ public:
             if ((int)traj.trajectory_id < _traj_id) return ;
 
             state = TRAJ;
-            _traj_id = traj.trajectory_id;
+           _traj_id = traj.trajectory_id;
 
             _n_order = traj.num_order;
             _n_segment = traj.num_segment;
@@ -110,6 +111,9 @@ public:
                     _coef[_DIM_z](j, idx) = traj.coef_z[idx * _n_order + j];
                 }
             }
+
+            _start_yaw = traj.start_yaw;
+            _final_yaw = traj.final_yaw;
             //ROS_WARN("[SERVER] Finished the loading.");
         }
         else if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT) 
@@ -153,6 +157,11 @@ public:
 
             double t = max(0.0, (_odom.header.stamp - _start_time).toSec());
             if (_odom.header.stamp > _final_time) t = (_final_time - _start_time).toSec();
+
+            _cmd.yaw_dot = 0.0;
+            _cmd.yaw = _start_yaw + (_final_yaw - _start_yaw) * t 
+                / ((_final_time - _start_time).toSec() + 1e-9);
+
             // #3. calculate the desired states
             //ROS_WARN("[SERVER] the time : %.3lf\n, n = %d, m = %d", t, _n_order, _n_segment);
             for (int idx = 0; idx < _n_segment; ++idx)

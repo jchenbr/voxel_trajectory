@@ -28,6 +28,7 @@
 #include "quadrotor_msgs/PolynomialTrajectory.h"
 //#include "mavlink_message/PositionCommand.h"
 #include "laser_geometry/laser_geometry.h"
+#include "voxel_trajectory/CheckObstacleByPoints.h"
 
 #include <vector>
 #include <set>
@@ -47,6 +48,10 @@ private:
     const double _EPS_POS = 1e-1;
 
     // interface
+    // service
+    
+    ros::ServiceServer _check_point_srv;
+
     // subscribers
     ros::Subscriber _odom_sub;
     ros::Subscriber _obs_pt_sub, _obs_blk_sub;
@@ -61,6 +66,7 @@ private:
     ros::Publisher _map_no_inflation_vis_pub;
     ros::Publisher _traj_vis_pub;
     ros::Publisher _check_point_vis_pub;
+    
     ros::Publisher _path_vis_pub;
     ros::Publisher _inflated_path_vis_pub;
     ros::Publisher _win_ctr_vis_pub;
@@ -78,12 +84,13 @@ private:
     // configuration
     double _resolution = 0.4;        // unit - m^3
     double _safe_margin = 0.1;       // unit - m
-    double _max_acc = 1.0;           // unit - m/s
-    double _max_vel = 1.0;           // unit - m/(s^2)
+    double _max_acc = 1.0, _f_acc = 1.0;           // unit - m/s
+    double _max_vel = 1.0, _f_vel = 1.0;           // unit - m/(s^2)
 
     double _extra_obstacle_height = 0.0;
     double _allowed_ground_height = 0.3;
     double _flight_height_limit = 100.0;
+    double _bdy[_TOT_BDY];
 
     // trajectory
     uint32_t _traj_id = 1;
@@ -104,6 +111,7 @@ private:
     quadrotor_msgs::PolynomialTrajectory _traj;
 
     VoxelTrajectory::VoxelServer * _core_no_inflation = new VoxelTrajectory::VoxelServer();
+    VoxelTrajectory::VoxelServer * _core_empty = new VoxelTrajectory::VoxelServer();
     visualization_msgs::Marker _traj_vis;
     visualization_msgs::MarkerArray _path_vis, _inflated_path_vis;
     sensor_msgs::PointCloud2 _map_vis;
@@ -116,6 +124,8 @@ private:
     ros::Timer _vis_map_no_inflation_timer;
 
     ros::Time _last_scan_stamp;
+    ros::Time _map_stamp = ros::TIME_MIN;
+    ros::Duration _map_duration = ros::Duration(2.0);
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
 
@@ -125,6 +135,11 @@ public:
 
     TrajectoryGenerator(ros::NodeHandle & handle)
     {
+        //service
+       
+        _check_point_srv = 
+            handle.advertiseService("CheckObstacleByPoints", &TrajectoryGenerator::checkObstacleByPoints, this);
+
         // subscribe odometry
         _odom_sub = 
             handle.subscribe("odometry", 50, &TrajectoryGenerator::rcvOdometryCallbck, this);
@@ -176,6 +191,32 @@ public:
         _vis_map_no_inflation_timer = 
             handle.createTimer(ros::Duration(1.0), &TrajectoryGenerator::visMapNoInflation, this);
 
+        handle.param("flag/visualization", _is_vis, true);
+        handle.param("map/boundary/lower_x", _bdy[_BDY_x], -100.0);
+        handle.param("map/boundary/upper_x", _bdy[_BDY_X], 100.0);
+        handle.param("map/boundary/lower_y", _bdy[_BDY_y], -100.0);
+        handle.param("map/boundary/upper_y", _bdy[_BDY_Y], 100.0);
+        handle.param("map/boundary/lower_z", _bdy[_BDY_z], -100.0);
+        handle.param("map/boundary/upper_z", _bdy[_BDY_Z], 200.0);
+        handle.param("map/resolution", _resolution, 0.4);
+        handle.param("map/safe_margin", _safe_margin, 0.3);
+        handle.param("max_velocity", _max_vel, 1.0);
+        handle.param("max_acceleration", _max_acc, 1.0);
+        handle.param("flight_velocity", _f_vel, _max_vel);
+        handle.param("flight_acceleration", _f_acc, _max_acc);
+        handle.param("setting/flight_height_limit", _flight_height_limit, -1e7);
+        handle.param("setting/extra_obstacle_height", _extra_obstacle_height, 0.0);
+        handle.param("setting/allowed_ground_height", _allowed_ground_height, 1e7);
+        handle.param("setting/laser_scan_step", _laser_scan_step, 0.2);
+        handle.param("setting/laser_scan_resolution", _laser_scan_resolution, 0.05);
+
+        this->buildMap(_bdy, _resolution, _safe_margin, _max_acc, _max_vel, _f_vel, _f_acc);
+
+        double map_duration;
+        handle.param("map/map_duration", map_duration, 2.0);
+        this->_map_duration = ros::Duration(map_duration);
+        this->_map_stamp = ros::Time::now();
+
         _last_scan_stamp = ros::TIME_MIN;
         handle.param("vis/trajectory_with", _vis_traj_width, 0.1);
     }
@@ -184,13 +225,14 @@ public:
             double max_vel = 1.0, double max_acc = 1.0,
             double f_vel = 1.0, double f_acc = 1.0)
     {
+        memcpy(this->_bdy, bdy, sizeof(double) * _TOT_BDY);
         _core->setMapBoundary(bdy);
         _core->setResolution(_resolution = resolution);
         _core->setMargin(_safe_margin = safe_margin);
         _core->setMaxVelocity(_max_vel = max_vel);
         _core->setMaxAcceleration(_max_acc = max_acc);
-        _core->setFlightVelocity(f_vel);
-        _core->setFlightAcceleration(f_acc);
+        _core->setFlightVelocity(_f_vel = f_vel);
+        _core->setFlightAcceleration(_f_acc = f_acc);
         
         _core_no_inflation->setMapBoundary(bdy);
         _core_no_inflation->setResolution(_resolution);
@@ -199,6 +241,15 @@ public:
         _core_no_inflation->setMaxAcceleration(_max_acc);
         _core_no_inflation->setFlightVelocity(f_vel);
         _core_no_inflation->setFlightAcceleration(f_acc);
+
+        double _bdy [] {-1000, 1000, -1000, 1000, 0, 2000};
+        _core_empty->setMapBoundary(_bdy);
+        _core_empty->setResolution(resolution);
+        _core_empty->setMargin(0.0);
+        _core_empty->setMaxVelocity(max_vel);
+        _core_empty->setMaxAcceleration(max_acc);
+        _core_empty->setFlightVelocity(f_vel);
+        _core_empty->setFlightAcceleration(f_acc);
 
         _has_map = true;
     
@@ -309,20 +360,11 @@ public:
 
     void checkHalfWay()
     {
-        //ROS_INFO("[GENERATOR] Checking halfway obstacle!!");
-        if (_has_traj && _odom.header.stamp < _final_time && _core->checkHalfWayObstacle_BrutalForce())
+        ROS_INFO("[GENERATOR] Checking halfway obstacle!! ");
+        ROS_INFO("[GENERATOR] result = %d", _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()));
+        if (_has_traj && _odom.header.stamp < _final_time 
+                && _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()))
         {
-#if 0
-            ROS_INFO("[GENERATOR] Replan. Will set up %lu waypoint(s).", _waypoints.size());
-            ROS_INFO("[GENERATOR] Replan. %lu arr_time.", _arr_time.size());
-            for (size_t i = 0; i < _arr_time.size(); ++i) 
-            {
-                ROS_INFO("t = %.3lf, dest = [%.3lf %.3lf %.3lf]", _arr_time[i], 
-                        _waypoints[i * _TOT_DIM + _DIM_x],
-                        _waypoints[i * _TOT_DIM + _DIM_y],
-                        _waypoints[i * _TOT_DIM + _DIM_z]); 
-            }
-#endif
             _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
             _traj_pub.publish(_traj);
 
@@ -347,6 +389,8 @@ public:
             if (vaild_id >= _arr_time.size()) return ;
 
             nav_msgs::Path path;
+            path.header.stamp = _odom.header.stamp;
+            path.header.frame_id = "/map";
             path.poses.resize(_arr_time.size() - vaild_id);
 
             for (size_t idx = vaild_id; idx < _arr_time.size(); ++idx)
@@ -355,16 +399,34 @@ public:
                 path.poses[idx - vaild_id].pose.position.y = _waypoints[idx * _TOT_DIM + _DIM_y];
                 path.poses[idx - vaild_id].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
             }
-
+            auto quad = tf::createQuaternionFromYaw(_traj.final_yaw);
+            path.poses.back().pose.orientation.w = quad.w();
+            path.poses.back().pose.orientation.x = quad.x();
+            path.poses.back().pose.orientation.y = quad.y();
+            path.poses.back().pose.orientation.z = quad.z();
 
             rcvWaypointsCallback(path);
         }
         //ROS_INFO("[GENERATOR] HALF_WAY_CHECK DONE!!");
     }
 
+    bool checkObstacleByPoints(
+            voxel_trajectory::CheckObstacleByPoints::Request & req,
+            voxel_trajectory::CheckObstacleByPoints::Response & res)
+    {
+        res.is_occupied.resize(req.size);
+        for (size_t idx = 0; idx < req.size; ++idx)
+        {
+            res.is_occupied[idx] = !_core->isVaild3DPoint(
+                    req.x[idx], req.y[idx], req.z[idx]);
+        }
+        return true;
+    }
+
     void rcvGlobalPointCloudCallback(const sensor_msgs::PointCloud2 & cloud)
     {
         if (!_has_map) return ;
+        initMap();
 
         const float * data = reinterpret_cast<const float *>(cloud.data.data());
         vector<double> pt, pt_no_inflation;
@@ -395,8 +457,6 @@ public:
         debug_info.data = "The_insertion_duration_: "  + to_string((ros::Time::now() - pre_time).toSec());
         _debug_pub.publish(debug_info);
 
-
-
         checkHalfWay();
 
         // visMap();
@@ -405,6 +465,7 @@ public:
     void rcvGlobalBlocksCloudCallback(const sensor_msgs::PointCloud2 & cloud)
     {
         if (!_has_map) return ;
+        initMap();
 
         const float * data = reinterpret_cast<const float *>(cloud.data.data());
         vector<double> blk, blk_no_inflation;
@@ -440,11 +501,26 @@ public:
         // visMap();
     }
 
+    void initMap()
+    {
+        //ROS_INFO("[GENERATOR] now %.2lf, last %.2lf, duration %.2lf", 
+        //        ros::Time::now().toSec(), _map_stamp.toSec(), _map_duration.toSec());
+        if (ros::Time::now() - _map_stamp > _map_duration)
+        {
+            _map_stamp = ros::Time::now();
+
+            _core->initMap();
+            //ROS_WARN("[GENERATOR] map initalized.");
+        }
+    }
+
     void rcvLaserScanCallback(const sensor_msgs::LaserScan & scan)
     {
         if (_odom_queue.empty()) return;
         if (scan.header.stamp - _last_scan_stamp < ros::Duration(_laser_scan_step)) return ;
+
         _last_scan_stamp = scan.header.stamp;
+        initMap();
 
         for (auto & odom: _odom_queue)
         {
@@ -573,6 +649,8 @@ public:
     void rcvLocalPointCloud(const sensor_msgs::PointCloud2 cloud)
     {
         if (_odom_queue.empty()) return ;
+        initMap();
+
         for (auto & odom: _odom_queue)
         {
             if (odom.header.stamp > cloud.header.stamp)
@@ -718,6 +796,8 @@ public:
 
         pose.pose.position = pt;
 
+        wp.header.stamp = _odom.header.stamp;
+        wp.header.frame_id = "/map";
         wp.poses.clear();
         wp.poses.push_back(pose);
 
@@ -727,6 +807,15 @@ public:
     void rcvWaypointsCallback(const nav_msgs::Path & wp)
     {
         if (!_has_map || !_has_odom) return ;
+
+
+        VoxelTrajectory::VoxelServer * p_core = _core;
+#if 1
+        if (wp.header.frame_id == "nomap") p_core = _core_empty;
+#else
+        p_core = _core_empty;
+#endif
+
         _pos_cmd.trajectory_id = ++_traj_id;
 
         vector<double> state = 
@@ -755,7 +844,7 @@ public:
         ROS_INFO("[GENERATOR] Generating the trajectory.");
 
         vector<double> cost_time;
-        if (_core->setWayPointsRec(state, _waypoints, _odom.header.stamp.toSec(), 
+        if (p_core->setWayPointsRec(state, _waypoints, _odom.header.stamp.toSec(), 
                     _arr_time, cost_time) != 2)
         {
             _arr_time.clear();
@@ -769,13 +858,16 @@ public:
             ROS_INFO("[GENERATOR] Generating the trajectory succeed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _last_dest.pose.pose.position = wp.poses.back().pose.position;
-            _final_time = ros::Time(_core->getFinalTime());
+            _final_time = ros::Time(p_core->getFinalTime());
 
-            _traj = _core->getTraj();
+            _traj = p_core->getTraj();
+            _traj.start_yaw = tf::getYaw(_odom.pose.pose.orientation);
+            _traj.final_yaw = tf::getYaw(wp.poses.back().pose.orientation);
+
             _traj.header.frame_id = "/map";
             _traj.trajectory_id = _traj_id;
             _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ADD;
-            _traj_pub.publish(_traj); 
+            _traj_pub.publish(_traj);
             ROS_INFO("[GENERATOR] Published the trajectory.");
 
             std_msgs::String debug_info;
@@ -785,9 +877,9 @@ public:
                 << cost_time[_DIM_y] << ", " 
                 << cost_time[_DIM_z] << ".\n"
                 << "[NEW_TRAJ] The new trajectory cost: " 
-                << _core->qp_cost[_DIM_x] << ", "
-                << _core->qp_cost[_DIM_y] << ", "
-                << _core->qp_cost[_DIM_z] << ".";
+                << p_core->qp_cost[_DIM_x] << ", "
+                << p_core->qp_cost[_DIM_y] << ", "
+                << p_core->qp_cost[_DIM_z] << ".";
             debug_info.data = sin.str();
             _debug_pub.publish(debug_info);
         }
@@ -831,8 +923,8 @@ public:
         //ROS_INFO("[GENERATOR] float points alredy.");
 
         const double * bdy = _core->getBdy();
-        ROS_INFO("[GENERATOR] The boundary of the map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
-                bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
+        //ROS_INFO("[GENERATOR] The boundary of the map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
+        //        bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
 
         _map_vis.header.frame_id = "/map";
         _map_vis.header.stamp = _odom.header.stamp;
@@ -866,28 +958,28 @@ public:
         }
 
         _map_vis_pub.publish(_map_vis);
-        ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
-                _map_vis.point_step);
+        //ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
+        //        _map_vis.point_step);
 
     }
 
     void visMapNoInflation(const ros::TimerEvent& evt)
     {
-        ROS_INFO("[GENERATOR] Map no inflation visualization start... flag : is_vis = %d, has_map = %d",
-                _is_vis, _has_map);
+        //ROS_INFO("[GENERATOR] Map no inflation visualization start... flag : is_vis = %d, has_map = %d",
+         //       _is_vis, _has_map);
 
         if (!_is_vis || !_has_map) return ;
         vector<double> pt = _core_no_inflation->getPointCloud();
-        ROS_INFO("[GENERATOR] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
+        //ROS_INFO("[GENERATOR] Here are %lu occupied grid(s) in the octormap.", pt.size() / 3);
 
         vector<float> pt32;
         pt32.resize(pt.size());
         for (size_t idx = 0; idx < pt.size(); ++idx) pt32[idx] = static_cast<float>(pt[idx]);
-        ROS_INFO("[GENERATOR] float points alredy.");
+        //ROS_INFO("[GENERATOR] float points alredy.");
 
         const double * bdy = _core_no_inflation->getBdy();
-        ROS_INFO("[GENERATOR] The boundary of the no inflation map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
-                bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
+        //ROS_INFO("[GENERATOR] The boundary of the no inflation map: [%.3lf %.3lf %.3lf %.3lf %.3lf %.3lf].",
+          //      bdy[_BDY_x], bdy[_BDY_y], bdy[_BDY_z], bdy[_BDY_X], bdy[_BDY_Y], bdy[_BDY_Z]);
 
         _map_vis.header.frame_id = "/map";
         _map_vis.header.stamp = _odom.header.stamp;
@@ -921,8 +1013,8 @@ public:
         }
 
         _map_no_inflation_vis_pub.publish(_map_vis);
-        ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
-                _map_vis.point_step);
+        //ROS_INFO("[GENERATOR] Map visualization finished. Total number of points : %d.", 
+          //      _map_vis.point_step);
 
     }
 
@@ -1136,31 +1228,6 @@ public:
 
         _win_ctr_vis_pub.publish(win_ctr);
     }
-    
-    void setLaserScanFilterSetting(double step, double resolution)
-    {
-        this->_laser_scan_step = step;
-        this->_laser_scan_resolution = resolution;
-    }
-
-    void set2DLaserDataSetting(double extra_height, double ground_height)
-    {
-        this->_extra_obstacle_height = extra_height;
-        this->_allowed_ground_height = ground_height;
-    }
-
-    void setFlightHeightLimit(double height_limit)
-    {
-        if (!_has_map) return ;
-
-        _flight_height_limit = height_limit;
-
-        vector<double> blk = {
-            -1e5, 1e5,
-            -1e5, 1e5,
-            height_limit, height_limit + 1e-7};
-        _core->addMapBlock(blk);
-    }
 };
 
 int main(int argc, char ** argv)
@@ -1169,54 +1236,6 @@ int main(int argc, char ** argv)
     ros::NodeHandle handle("~");
 
     TrajectoryGenerator generator(handle);
-
-    bool is_vis;
-    double bdy[_TOT_BDY], resolution, safe_margin;
-    double max_vel, max_acc, flight_vel, flight_acc;
-    double flight_height_limit;
-    double extra_obstacle_heigt;
-    double allowed_ground_height;
-    double laser_resolution, laser_step;
-
-    handle.param("flag/visualization", is_vis, true);
-    handle.param("map/boundary/lower_x", bdy[_BDY_x], -100.0);
-    handle.param("map/boundary/upper_x", bdy[_BDY_X], 100.0);
-    handle.param("map/boundary/lower_y", bdy[_BDY_y], -100.0);
-    handle.param("map/boundary/upper_y", bdy[_BDY_Y], 100.0);
-    handle.param("map/boundary/lower_z", bdy[_BDY_z], -100.0);
-    handle.param("map/boundary/upper_z", bdy[_BDY_Z], 200.0);
-    handle.param("map/resolution", resolution, 0.4);
-    handle.param("map/safe_margin", safe_margin, 0.3);
-    handle.param("max_velocity", max_vel, 1.0);
-    handle.param("max_acceleration", max_acc, 1.0);
-    handle.param("flight_velocity", flight_vel, max_vel);
-    handle.param("flight_acceleration", flight_acc, max_acc);
-    handle.param("setting/flight_height_limit", flight_height_limit, -1e7);
-    handle.param("setting/extra_obstacle_height", extra_obstacle_heigt, 0.0);
-    handle.param("setting/allowed_ground_height", allowed_ground_height, 1e7);
-    handle.param("setting/laser_scan_step", laser_step, 0.2);
-    handle.param("setting/laser_scan_resolution", laser_resolution, 0.05);
-
-
-    ROS_INFO("[TRAJ_SERVER] vel = %.3lf acc = %.3lf", max_vel, max_acc);
-
-    generator.buildMap(bdy, resolution, safe_margin, max_vel, max_acc, flight_vel, flight_acc);
-    generator.setFlightHeightLimit(flight_height_limit);
-    generator.set2DLaserDataSetting(extra_obstacle_heigt, allowed_ground_height);
-    generator.setLaserScanFilterSetting(laser_step, laser_resolution);
-
-    if (is_vis) 
-        generator.enableVisualization();
-    else
-        generator.disableVisualization();
-
-    // ros::Rate work_rate(1.0);
-    // while (ros::ok())
-    // {
-    //     server.visMap();
-    //     work_rate.sleep();
-    //     ros::spinOnce();
-    // }
 
     ros::spin();
     return 0;

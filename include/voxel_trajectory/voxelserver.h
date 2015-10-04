@@ -43,53 +43,8 @@ private:
         double coeff_t;
 
         VoxelTrajectory::OctoMap * voxel_map;
-        ros::Publisher * pt_grid_pub = NULL;
 public:
         vector<double> qp_cost;
-
-        // # -1. func for visualization
-        // set up grid visualization publisher.
-        void setGridPublisher(ros::Publisher & pub)
-        {
-            pt_grid_pub = & pub;
-        }
-
-        // publish grid for visualization, brutal way
-        void publishGrid(double grid[_TOT_BDY], int id = 0)
-        {
-            if (pt_grid_pub == NULL) return ;
-
-            visualization_msgs::Marker marker;
-
-            marker.header.frame_id  = "/map";
-            marker.header.stamp     = ros::Time::now();
-            
-            marker.ns   = "voxel_inflated_path";
-            marker.type = visualization_msgs::Marker::CUBE;
-            marker.action = visualization_msgs::Marker::ADD;
-
-            marker.pose.orientation.x = 0.0;
-            marker.pose.orientation.y = 0.0;
-            marker.pose.orientation.z = 0.0;
-            marker.pose.orientation.w = 1.0;
-            marker.color.a = 0.2;
-            marker.color.b = 4.0;
-            marker.color.r = 0.0;
-            marker.color.g = 0.0;
-
-            marker.id = id;
-
-            marker.pose.position.x = (grid[_BDY_x] + grid[_BDY_X]) * 0.5;
-            marker.pose.position.y = (grid[_BDY_y] + grid[_BDY_Y]) * 0.5;
-            marker.pose.position.z = (grid[_BDY_z] + grid[_BDY_Z]) * 0.5;
-
-            marker.scale.x = grid[_BDY_X] - grid[_BDY_x];
-            marker.scale.y = grid[_BDY_Y] - grid[_BDY_y];
-            marker.scale.z = grid[_BDY_Z] - grid[_BDY_z];
-
-
-            pt_grid_pub->publish(marker);
-        }
 
         /* 0. Init our server. */
         VoxelServer()
@@ -106,6 +61,9 @@ public:
             resolution  = 0.2;
             margin  = 0.02;
             voxel_map = NULL; 
+
+            init_time = final_time = 0.0;
+
             bdy[0] = bdy[2] = bdy[4] = +_DB_INF;
             bdy[1] = bdy[3] = bdy[5] = -_DB_INF;
         }
@@ -113,6 +71,12 @@ public:
         ~VoxelServer()
         {
             delete voxel_map;
+        }
+        
+        void initMap()
+        {
+            delete voxel_map;
+            voxel_map = new VoxelTrajectory::OctoMap(bdy, resolution);
         }
 
         /*  1.  Receive point cloud 
@@ -160,15 +124,16 @@ public:
         const static int _TRAJ_NULL = 0;
         const static int _TRAJ_HALF = 1;
         const static int _TRAJ_SUCC = 2;
-        const double _CHECK_DELTA_T = 0.1;
+        const double _CHECK_DELTA_T = 0.03;
 
-        bool checkHalfWayObstacle_BrutalForce()
+        bool checkHalfWayObstacle_BrutalForce(double beg_time = 0.0)
         {
+            //ROS_INFO("[VOXEL_SERVER] In the core alreday.");
             vector<double> state;
             for (double t = init_time; t < final_time; t += _CHECK_DELTA_T)
             {
                 state = getDesiredState(t);
-
+                //ROS_INFO("[VXOEL_SERVER] !");
                 if (voxel_map->testObstacle(state.data())) 
                 {
                     return true;
@@ -216,41 +181,44 @@ public:
 
 
                     //clog << "[VOXEL_SERVER] iRow = " << iRow << endl; 
-                    if (iRow == 0)
+                    if (m > 1)
                     {
-                        double pt[_TOT_DIM] =  
+                        if (iRow == 0)
                         {
-                            (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
-                            (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
-                            (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
-                        };
-                        //clog << " ? " << endl;
-                        neighbor[within(pt, bdy)] = 1;
-                    }
-                    else if (iRow + 1 == m)
-                    {
-                        double pt[_TOT_DIM] = 
+                            double pt[_TOT_DIM] =  
+                            {
+                                (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
+                                (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
+                                (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
+                            };
+                            //clog << " ? " << endl;
+                            neighbor[within(pt, bdy)] = 1;
+                        }
+                        else if (iRow + 1 == m)
                         {
-                            (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
-                            (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
-                            (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5
-                        };
-                        neighbor[within(pt, bdy)] = 1;
-                    }
-                    else
-                    {
-                        double pt[_TOT_DIM + _TOT_DIM] = 
+                            double pt[_TOT_DIM] = 
+                            {
+                                (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
+                                (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
+                                (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5
+                            };
+                            neighbor[within(pt, bdy)] = 1;
+                        }
+                        else
                         {
-                            (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
-                            (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
-                            (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5,
+                            double pt[_TOT_DIM + _TOT_DIM] = 
+                            {
+                                (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
+                                (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
+                                (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5,
 
-                            (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
-                            (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
-                            (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
-                        };
-                        neighbor[within(pt, bdy)] = 1;
-                        neighbor[within(pt + _TOT_DIM, bdy)] = 1;
+                                (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
+                                (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
+                                (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
+                            };
+                            neighbor[within(pt, bdy)] = 1;
+                            neighbor[within(pt + _TOT_DIM, bdy)] = 1;
+                        }
                     }
 
                     //clog << "[VOXEL_SERVER] preparation done." << endl;
@@ -333,7 +301,7 @@ public:
                 p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
                 p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
                 p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
-                ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
+                //ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
                 auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
                 if (edge_node.first.rows() == 0) 
                 {
@@ -384,6 +352,7 @@ public:
                traj_gen.genPolyCoeffTime(path, inflated_path, 
                        Vel, Acc, max_vel, max_acc, 
                        flight_vel, flight_acc, coeff_t);
+            //ROS_WARN_STREAM("[VOXEL_SERVER] Traj: \n" << traj.first);
             qp_cost = traj_gen.qp_cost;
 
 
@@ -459,7 +428,7 @@ public:
                 p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
                 p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
                 p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
-                ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
+                //ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
                 auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
                 if (edge_node.first.rows() == 0) 
                 {
@@ -494,7 +463,7 @@ public:
             path.block(1, 0, m, _TOT_BDY) << node;
             // set up the window
             path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
-            ROS_INFO_STREAM("[VOXEL_SERVER] PATH : \n" << path << endl);
+            //ROS_INFO_STREAM("[VOXEL_SERVER] PATH : \n" << path << endl);
 
             inflated_path = getInflatedPath(path);
             cost_time.push_back((ros::Time::now() - prv_time).toSec());
@@ -515,6 +484,8 @@ public:
                traj_gen.genPolyCoeffTime(path, inflated_path, 
                        Vel, Acc, max_vel, max_acc,
                        flight_vel, flight_acc, coeff_t);
+
+
             qp_cost = traj_gen.qp_cost;
 
             cost_time.push_back((ros::Time::now() - prv_time).toSec());
@@ -613,7 +584,7 @@ public:
                 // set up the window
                 path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.transpose().block(1, 0, m - 1, _TOT_BDY);
 
-                ROS_INFO_STREAM( "[ PATH ]: \n" << path << endl );
+                //ROS_INFO_STREAM( "[ PATH ]: \n" << path << endl );
 
                 // the matrix for inflation
                 inflated_path = getInflatedPath(path);
@@ -713,11 +684,11 @@ public:
             traj.num_order = nPoly;
             traj.num_segment = nTraj;
 
+
             traj.coef_x.resize(P.rows());
             traj.coef_y.resize(P.rows());
             traj.coef_z.resize(P.rows());
 
-            ROS_WARN("[VOXEL] A");
             for (int idx = 0; idx < P.rows(); ++idx)
             {
                 traj.coef_x[idx] = P(idx, _DIM_x);
@@ -725,17 +696,14 @@ public:
                 traj.coef_z[idx] = P(idx, _DIM_z);
             }
 
-            ROS_WARN("[VOXEL] B");
             traj.header.frame_id = "/map";
             traj.header.stamp = ros::Time(init_time); 
             
-            ROS_WARN("[VOXEL] C");
             traj.time.resize(T.rows());
             for (int idx = 0; idx < T.rows(); ++idx)
             {
                 traj.time[idx] = T[idx];
             }
-            ROS_WARN("[VOXEL] D");
             return traj;
         }
 

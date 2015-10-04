@@ -111,7 +111,8 @@ namespace VoxelTrajectory
     {
         for (size_t idx = 0; idx < node.size(); ++idx)
         {
-            if (isAtom(node[idx])) VoxelGraph::delNode(graph_node_ptr[idx]);
+            if (isAtom(node[idx]) && graph_node_ptr[idx] != NULL) 
+                VoxelGraph::delNode(graph_node_ptr[idx]);
         }
     }
 
