@@ -11,7 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   nav_msgs
   quadrotor_msgs
-  mavlink_message
+ # mavlink_message
   laser_geometry
   message_generation
 )
@@ -26,15 +26,15 @@ include_directories(
 )
 
 # for PCL
-find_package(PCL REQUIRED common io)
-include_directories(
-    ${PCL_INCLUDE_DIRS}
-)
+#find_package(PCL REQUIRED common io)
+#include_directories(
+#    ${PCL_INCLUDE_DIRS}
+#)
 
 include_directories(VoxelTrajectory/include)
 
 # for c++
-set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "-std=c++11 -O3 ${CMAKE_CXX_FLAGS}")
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -250,8 +250,8 @@ target_link_libraries(trajectory_server_node
 
 target_link_libraries( mission_commander_node
 	${catkin_LIBRARIES}
-	${PCL_COMMON_LIBRRIES}
-	${PCL_IO_LIBRARIES}
+#	${PCL_COMMON_LIBRRIES}
+#	${PCL_IO_LIBRARIES}
 
 	octomap_
 	voxelgraph_

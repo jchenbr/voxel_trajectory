@@ -10,8 +10,8 @@
 #include "nav_msgs/Odometry.h"
 #include "std_msgs/Float64.h"
 #include "ros/console.h"
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
+//#include <pcl/io/pcd_io.h>
+//#include <pcl/point_types.h>
 #include <random>
 using namespace std;
 
@@ -252,7 +252,7 @@ void real_quad(ros::NodeHandle & handle)
     }
     
 }
-
+# if 0
 void pcl_pcd(ros::NodeHandle & handle)
 {
     ros::Publisher pc_pub = 
@@ -303,6 +303,7 @@ void pcl_pcd(ros::NodeHandle & handle)
 
     delete [] pc;
 }
+#endif
 
 void obs_blk_dest(ros::NodeHandle & handle)
 {
@@ -436,7 +437,7 @@ int main(int argc, char ** argv)
     }
     else if (mode == 2)
     {
-        pcl_pcd(handle);
+        //pcl_pcd(handle);
     }
     else if (mode== 1)
     {
