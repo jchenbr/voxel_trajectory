@@ -1,0 +1,96 @@
+<launch>
+
+    <param name	= "test_mode" value = "4"/>
+    <param name	= "/random_forest/tot_num" value = "80"/>
+
+    <param name	= "/random_forest/h_mean" value = "7"/>
+    <param name	= "/random_forest/h_var" value = "1"/>
+
+    <param name	= "/random_forest/r_mean" value = "0.2"/>
+    <param name	= "/random_forest/r_var" value = "0.2"/>
+
+    <param name	= "/random_forest/H_mean" value = "2"/>
+    <param name	= "/random_forest/H_var" value = "0.5"/>
+
+    <param name	= "/random_forest/W_mean" value = "3"/>
+    <param name	= "/random_forest/W_var" value = "0.5"/>
+
+
+    <node
+      pkg     = "voxel_trajectory"
+      type    = "mission_commander_node"
+      output  = "screen"
+      name    = "mission_commander">
+
+    </node>
+
+    <node name="rviz" 
+        pkg="rviz" 
+        type="rviz" 
+        output="screen"
+        args="-d $(find voxel_trajectory)/launch/rviz_config/rviz_config.rviz"/>  
+
+
+<!--
+    <node 
+ 	    pkg 	= "voxel_trajectory"
+	    type 	= "test_limited_sensing_node"
+ 	    name 	= "limited_sensor"
+	    output  = "screen">
+        <param  name = "limited_sensing/sensing_raduis"     value = "3.0"/>
+        <param  name = "limited_sensing/sensing_resolution" value = "0.1"/>
+        <param  name = "limited_sensing/sensing_rate"       value = "5"/>
+        <remap  from = "~odometry"              to = "/state_ukf/odom" />
+        <remap  from = "~sensed_points"         to = "~sensed_points"/>
+	<remap  from = "~obstacle_points"       to = "~obstacle_points"/>
+	<remap  from = "~obstacle_blocks"       to = "/trajectory_generator/obstacle_blocks"/>
+    </node>
+-->
+    <node 
+	pkg 	= "voxel_trajectory"
+	type 	= "body_tf"
+	name	= "body_tf"
+	output	= "screen">
+	<remap 	from = "~odometry" 	to = "/multi_sensor_ukf/odom"/>
+    </node>
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "trajectory_server_node"
+        output  = "screen"
+        name    = "trajectory_generator">
+
+        <param  name = "init/visualization" value = "true"/>
+
+
+        <param  name = "map/boundary/lower_x"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_x"  value = "20.0"/>
+        <param  name = "map/boundary/lower_y"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_y"  value = "20.0"/>
+        <param  name = "map/boundary/lower_z"  value = "0.0"/>
+        <param  name = "map/boundary/upper_z"  value = "40.0"/>
+        <param  name = "map/resolution"  value = "0.008"/>
+
+        <param  name = "max_velocity"  value = "3.0"/>
+        <param  name = "max_acceleration"  value = "3.0"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~obstacle_points"   to = "/limited_sensor/sensed_points"/>
+        <remap  from = "~obstacle_blocks"   to = "~obstacle_blocks_baned"/>
+        <remap  from = "~laser_scan"        to = "/scan"/>
+        <remap  from = "~odometry"          to = "/multi_sensor_ukf/odom"/>
+        <remap  from = "~goal_point"        to = "~goal_point"/>
+        <remap  from = "~waypoints"         to = "/waypoint_generator/waypoints"/>
+
+        <!-- advertised topics -->
+        <remap  from = "~desired_state"     to = "/position_cmd"/>
+
+        <!-- advertised visualization topics -->
+        <remap  from = "~map_vis"           to = "/trajectory_generator/map_points"/>
+        <remap  from = "~trajectory_vis"    to = "/trajectory_generator/line_strip"/>
+        <remap  from = "~path_vis"          to = "/trajectory_generator/voxel_path"/>
+        <remap  from = "~inflated_path_vis" to = "/trajectory_generator/inflated_path"/>
+        <remap  from = "~checkpoints_vis"   to = "/trajectory_generator/check_point"/>
+    </node>
+
+</launch>

@@ -1,0 +1,61 @@
+<launch>
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "grid_trajectory_generator_node"
+        output  = "screen"
+        name    = "trajectory_generator">
+
+        <param  name = "init/visualization" value = "true"/>
+
+        <param  name = "setting/flight_height_limit" value = "300"/>
+        <param  name = "setting/extra_obstacle_height" value = "2.5"/>
+        <param  name = "setting/allowed_ground_height" value = "0.3"/>
+        <param  name = "setting/laser_scan_step" value = "0.2"/>
+        <param  name = "setting/laser_scan_resolution" value = "0.05"/>
+
+        <param  name = "map/boundary/lower_x"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_x"  value = "20.0"/>
+        <param  name = "map/boundary/lower_y"  value = "-20.0"/>
+        <param  name = "map/boundary/upper_y"  value = "20.0"/>
+        <param  name = "map/boundary/lower_z"  value = "0.0"/>
+        <param  name = "map/boundary/upper_z"  value = "40.0"/>
+        <param  name = "map/resolution"  value = "0.008"/>
+
+        <param  name = "max_velocity"  value = "3.0"/>
+        <param  name = "max_acceleration"  value = "3.0"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~obstacle_points"   to = "/limited_sensor/sensed_points"/>
+        <remap  from = "~obstacle_blocks"   to = "~obstacle_blocks_baned"/>
+        <remap  from = "~laser_scan"        to = "/scan"/>
+        <remap  from = "~goal_point"        to = "~goal_point"/>
+        <remap  from = "~waypoints"         to = "/waypoint_generator/waypoints"/>
+
+        <!-- advertised topics -->
+        <remap  from = "~desired_state"     to = "/position_cmd"/>
+        <remap  from = "~trajectory"        to = "~trajectory"/>
+
+        <!-- advertised visualization topics -->
+        <remap  from = "~map_vis"           to = "/trajectory_generator/map_points"/>
+        <remap  from = "~trajectory_vis"    to = "/trajectory_generator/line_strip"/>
+        <remap  from = "~path_vis"          to = "/trajectory_generator/voxel_path"/>
+        <remap  from = "~inflated_path_vis" to = "/trajectory_generator/inflated_path"/>
+        <remap  from = "~checkpoints_vis"   to = "/trajectory_generator/check_point"/>
+    </node>
+
+    <node
+        pkg     = "voxel_trajectory"
+        type    = "grid_trajectory_server_node"
+        output  = "screen"
+        name    = "trajectory_server">
+        
+        <!-- advertised topics -->
+        <remap  from = "~trajectory"        to = "/trajectory_generator/trajectory"/>
+        <remap  from = "~odometry"          to = "/state_ukf/odom"/>
+
+        <!-- subscribed topics -->
+        <remap  from = "~position_command"  to = "/position_cmd"/>
+    </node>
+
+</launch>

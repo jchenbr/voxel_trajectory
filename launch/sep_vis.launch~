@@ -1,0 +1,42 @@
+<launch>
+  <!-- Manual Waypoint Generator -->
+  <node pkg="waypoint_generator"
+        name="waypoint_generator"
+        type="waypoint_generator"       
+        output="screen">
+    <remap from="~odom" to="/visual_slam/odom"/>        
+    <remap from="~goal" to="/goal"/>
+    <param name="waypoint_type" value="manual"/>    
+  </node>     
+
+  <!-- Visualization -->
+  <node pkg="odom_visualization"
+        name="odom_visualization_ukf"
+        type="odom_visualization"       
+        output="screen">
+    <remap from="~odom" to="/visual_slam/odom"/>
+    <param name="color/a" value="0.8"/>    
+    <param name="color/r" value="1.0"/>        
+    <param name="color/g" value="0.0"/>        
+    <param name="color/b" value="0.0"/>       
+    <param name="covariance_scale" value="100.0"/>       
+  </node>
+
+  <node name="rviz" 
+        pkg="rviz" 
+        type="rviz" 
+        output="screen"
+        args="-d $(find voxel_trajectory)/launch/rviz_config/rviz_config.rviz"/>     
+
+  <node pkg="so3_disturbance_generator"
+        name="so3_disturbance_generator"
+        type="so3_disturbance_generator"       
+        output="screen">
+    <remap from="~odom" to="/visual_slam/odom"/>              <!-- Ground Truth & Fake VSLAM Odom -->
+    <remap from="~noisy_odom" to="/state_ukf/odom"/>          <!-- Fake VINS Odom                 -->
+    <remap from="~correction" to="/visual_slam/correction"/>  <!-- Fake VSLAM Correction          -->   
+    <remap from="~force_disturbance" to="force_disturbance"/>        
+    <remap from="~moment_disturbance" to="moment_disturbance"/>            
+  </node>
+
+</launch>

@@ -9,11 +9,11 @@
     <param name	= "/random_forest/r_mean" value = "0.2"/>
     <param name	= "/random_forest/r_var" value = "0.5"/>
 
-    <param name	= "/random_forest/H_mean" value = "0.0"/>
-    <param name	= "/random_forest/H_var" value = "0.0"/>
+    <param name	= "/random_forest/H_mean" value = "2"/>
+    <param name	= "/random_forest/H_var" value = "0.5"/>
 
-    <param name	= "/random_forest/W_mean" value = "0.0"/>
-    <param name	= "/random_forest/W_var" value = "0.0"/>
+    <param name	= "/random_forest/W_mean" value = "0.2"/>
+    <param name	= "/random_forest/W_var" value = "0.5"/>
 
     <param name = "/map_x_lower_bound" value = "-20"/>
     <param name = "/map_x_upper_bound" value = "20"/>
@@ -22,19 +22,23 @@
     <param name = "/map_z_lower_bound" value = "0"/>
     <param name = "/map_z_upper_bound" value = "40"/>
 
+
     <node
       pkg     = "voxel_trajectory"
       type    = "mission_commander_node"
-      output  = "log"
+      output  = "screen"
       name    = "mission_commander">
 
+<!--
+	    <remap  from = "/trajectory_generator/obstacle_blocks" to = "/trajectory_generator/obstacle_blocks_baned"/>
+-->
     </node>
 
     <node 
  	    pkg 	= "voxel_trajectory"
 	    type 	= "test_limited_sensing_node"
  	    name 	= "limited_sensor"
-	    output  = "log">
+	    output  = "screen">
         <param  name = "limited_sensing/sensing_raduis"     value = "3.0"/>
         <param  name = "limited_sensing/sensing_resolution" value = "0.1"/>
         <param  name = "limited_sensing/sensing_rate"       value = "5"/>
@@ -43,6 +47,10 @@
         <param  name = "setting/flight_height_limit" value = "250"/>
         <param  name = "setting/extra_obstacle_height" value = "2.5"/>
         <param  name = "setting/allowed_ground_height" value = "0.3"/>
+<!--
+        <param  name = "limited_sensing/obstacle_file"
+                    value = "$(find voxel_trajectory)/data/test_case_2/obstacle.txt" />
+-->
         <remap  from = "~odometry"              to = "/state_ukf/odom" />
         <remap  from = "~sensed_points"         to = "~sensed_points"/>
 	<remap  from = "~obstacle_points"       to = "~obstacle_points"/>

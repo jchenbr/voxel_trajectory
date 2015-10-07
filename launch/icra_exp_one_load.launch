@@ -22,6 +22,14 @@
     <param name = "/map_z_lower_bound" value = "0"/>
     <param name = "/map_z_upper_bound" value = "40"/>
 
+    <node 
+        name    = "rosbagmap"
+        pkg     = "rosbag"
+        type    = "play"
+        respawn = "false"
+        args    = "$(find voxel_trajectory)/bag/map.bag /trajectory_generator/map_no_inflation_vis:=/limited_sensor/sensed_points"/>
+
+<!--
     <node
       pkg     = "voxel_trajectory"
       type    = "mission_commander_node"
@@ -48,6 +56,7 @@
 	<remap  from = "~obstacle_points"       to = "~obstacle_points"/>
 	<remap  from = "~obstacle_blocks"       to = "/trajectory_generator/obstacle_blocks"/>
     </node>
+-->
 
     <!-- <include file="$(find voxel_trajectory)/launch/sep_traj.launch"/> -->
     <include file="$(find voxel_trajectory)/launch/sep_quadrotor.launch"/>
