@@ -109,6 +109,8 @@ public:
         //> Get simplified point cloud
         vector<double> getPointCloud()
         {
+            if (voxel_map == NULL) return vector<double>();
+
             return voxel_map->getPointCloud();
         }
 
