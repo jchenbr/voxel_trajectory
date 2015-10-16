@@ -852,6 +852,7 @@ public:
             ROS_INFO("[GENERATOR] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
+            _has_traj = false;
         }
         else
         {
@@ -882,9 +883,9 @@ public:
                 << p_core->qp_cost[_DIM_z] << ".";
             debug_info.data = sin.str();
             _debug_pub.publish(debug_info);
+            _has_traj = true;
         }
 
-        _has_traj = true;
         ROS_INFO("[GENERATOR] Starting visualization.");
         visTrajectory();
         ROS_INFO("[GENERATOR] Trajectory visualzation finished.");
