@@ -23,6 +23,7 @@ private:
     int _n_order = 6;
     int _n_segment = 0;
     int _traj_id = 0;
+    uint32_t _traj_flag = 0;
     Eigen::VectorXd _time;
     Eigen::MatrixXd _coef[_TOT_DIM];
     ros::Time _final_time = ros::TIME_MIN;
@@ -75,6 +76,7 @@ public:
         if (state == TRAJ && odom.header.stamp > _final_time)
         {
             state = HOVER;
+            _traj_id = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
         }
     }
 
@@ -88,6 +90,8 @@ public:
             if ((int)traj.trajectory_id < _traj_id) return ;
 
             state = TRAJ;
+            _traj_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
+
            _traj_id = traj.trajectory_id;
 
             _n_order = traj.num_order;
@@ -114,12 +118,19 @@ public:
 
             _start_yaw = traj.start_yaw;
             _final_yaw = traj.final_yaw;
+
             //ROS_WARN("[SERVER] Finished the loading.");
         }
         else if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT) 
         {
             ROS_WARN("[SERVER] Aborting the trajectory.");
             state = HOVER;
+            _traj_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
+        }
+        else if (traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_WARN_IMPOSSIBLE)
+        {
+            state = HOVER;
+            _traj_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_IMPOSSIBLE;
         }
         // #2. try to store the trajectory if the case
     }
@@ -137,7 +148,7 @@ public:
 
             _cmd.header.stamp = _odom.header.stamp;
             _cmd.header.frame_id = "/map";
-            _cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
+            _cmd.trajectory_flag = _traj_flag;
 
             _cmd.velocity.x = 0.0;
             _cmd.velocity.y = 0.0;
@@ -152,7 +163,7 @@ public:
         {
             _cmd.header.stamp = _odom.header.stamp;
             _cmd.header.frame_id = "/map";
-            _cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
+            _cmd.trajectory_flag = _traj_flag;
             _cmd.trajectory_id = _traj_id;
 
             double t = max(0.0, (_odom.header.stamp - _start_time).toSec());

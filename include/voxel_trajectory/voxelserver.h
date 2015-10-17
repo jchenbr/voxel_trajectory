@@ -145,6 +145,7 @@ public:
 
 	bool isVaild3DPoint(double x, double y, double z)
         {
+            if (voxel_map == NULL) return true;
             double pt[_TOT_DIM]  {x, y, z};
             return !voxel_map->testObstacle(pt);
         }

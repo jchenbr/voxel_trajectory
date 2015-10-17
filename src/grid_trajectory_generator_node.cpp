@@ -360,8 +360,8 @@ public:
 
     void checkHalfWay()
     {
-        ROS_INFO("[GENERATOR] Checking halfway obstacle!! ");
-        ROS_INFO("[GENERATOR] result = %d", _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()));
+        //ROS_INFO("[GENERATOR] Checking halfway obstacle!! ");
+        //ROS_INFO("[GENERATOR] result = %d", _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()));
         if (_has_traj && _odom.header.stamp < _final_time 
                 && _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()))
         {
@@ -852,6 +852,9 @@ public:
             ROS_INFO("[GENERATOR] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
+
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_WARN_IMPOSSIBLE;
+            _traj_pub.publish(_traj);
             _has_traj = false;
         }
         else
