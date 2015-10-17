@@ -34,6 +34,7 @@
 #include <set>
 #include <deque>
 #include <sstream>
+#include <math>
 
 
 
@@ -46,6 +47,7 @@ private:
     VoxelTrajectory::VoxelServer * _core = new VoxelTrajectory::VoxelServer();
     const double _EPS = 1e-9;
     const double _EPS_POS = 1e-1;
+    const double _PI = acos(-1);
 
     // interface
     // service
@@ -867,6 +869,11 @@ public:
             _traj = p_core->getTraj();
             _traj.start_yaw = tf::getYaw(_odom.pose.pose.orientation);
             _traj.final_yaw = tf::getYaw(wp.poses.back().pose.orientation);
+
+            if (abs( (_traj.start_yaw + 2 * _PI) - _traj.final_yaw) < _PI)
+                _traj.start_yaw += 2 * _PI;
+            if (abs( (_traj.start_yaw - 2 * _PI) - _traj.final_yaw) < _PI)
+                _traj.start_yaw -= 2 * _PI;
 
             _traj.header.frame_id = "/map";
             _traj.trajectory_id = _traj_id;
