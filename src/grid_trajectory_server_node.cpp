@@ -76,7 +76,7 @@ public:
         if (state == TRAJ && odom.header.stamp > _final_time)
         {
             state = HOVER;
-            _traj_id = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
+            _traj_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
         }
     }
 
