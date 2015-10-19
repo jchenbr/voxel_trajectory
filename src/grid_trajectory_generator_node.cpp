@@ -250,10 +250,15 @@ public:
         _core_no_inflation->setFlightVelocity(f_vel);
         _core_no_inflation->setFlightAcceleration(f_acc);
 
-        double _bdy [] {-1000, 1000, -1000, 1000, 0, 2000};
-        _core_empty->setMapBoundary(_bdy);
-        _core_empty->setResolution(resolution);
-        _core_empty->setMargin(0.0);
+        double bdy_free[]
+        {
+            bdy[_BDY_x] - 5, bdy[_BDY_X] + 5,
+            bdy[_BDY_y] - 5, bdy[_BDY_Y] + 5,
+            bdy[_BDY_z] - 5, bdy[_BDY_Z] + 5
+        };
+        _core_empty->setMapBoundary(bdy_free);
+        _core_empty->setResolution(_resolution);
+        _core_empty->setMargin(_safe_margin);
         _core_empty->setMaxVelocity(max_vel);
         _core_empty->setMaxAcceleration(max_acc);
         _core_empty->setFlightVelocity(f_vel);
