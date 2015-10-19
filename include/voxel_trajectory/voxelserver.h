@@ -642,7 +642,7 @@ public:
         {
             //clog<<"[t_now] = "<< t_now << ", [init_time] = " << init_time << ", "<< t_now - init_time<<endl;
             //clog<<"[ T ]" << T.transpose() << endl;
-            if (T.empty()) return vector<double>(0); 
+            if (T.cols() == 0 || !hasTraj) return vector<double>(0); 
 
             t_now -= init_time;
             vector<double > ret(3 * 3, 0);

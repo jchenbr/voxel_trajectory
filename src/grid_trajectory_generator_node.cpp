@@ -130,6 +130,8 @@ private:
     ros::Duration _map_duration = ros::Duration(2.0);
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
+    
+    double _ratio_init_z_velocity = 0.5;
 
     double _vis_traj_width = 0.1;
 
@@ -211,6 +213,7 @@ public:
         handle.param("setting/allowed_ground_height", _allowed_ground_height, 1e7);
         handle.param("setting/laser_scan_step", _laser_scan_step, 0.2);
         handle.param("setting/laser_scan_resolution", _laser_scan_resolution, 0.05);
+        handle.param("setting/ratio_z_init_velocity", _ratio_init_z_velocity, 0.5);
 
         this->buildMap(_bdy, _resolution, _safe_margin, _max_acc, _max_vel, _f_vel, _f_acc);
         vector<double> bdy{-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
@@ -837,7 +840,7 @@ public:
             _odom.pose.pose.position.z + _EPS,
             _odom.twist.twist.linear.x,
             _odom.twist.twist.linear.y,
-            0.0, // veclocity on z direction.
+            _odom.twist.twist.linear.z * _ratio_init_z_velocity,
             0.0,
             0.0,
             0.0
