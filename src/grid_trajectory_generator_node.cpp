@@ -206,13 +206,16 @@ public:
         handle.param("max_acceleration", _max_acc, 1.0);
         handle.param("flight_velocity", _f_vel, _max_vel);
         handle.param("flight_acceleration", _f_acc, _max_acc);
-        handle.param("setting/flight_height_limit", _flight_height_limit, -1e7);
+        handle.param("setting/flight_height_limit", _flight_height_limit, 1e7);
         handle.param("setting/extra_obstacle_height", _extra_obstacle_height, 0.0);
         handle.param("setting/allowed_ground_height", _allowed_ground_height, 1e7);
         handle.param("setting/laser_scan_step", _laser_scan_step, 0.2);
         handle.param("setting/laser_scan_resolution", _laser_scan_resolution, 0.05);
 
         this->buildMap(_bdy, _resolution, _safe_margin, _max_acc, _max_vel, _f_vel, _f_acc);
+        vector<double> bdy{-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
+        _core->addMapBlock(bdy);
+        _core_empty->addMapBlock(bdy);
 
         double map_duration;
         handle.param("map/map_duration", map_duration, 2.0);
@@ -252,6 +255,11 @@ public:
         _core_empty->setMaxAcceleration(max_acc);
         _core_empty->setFlightVelocity(f_vel);
         _core_empty->setFlightAcceleration(f_acc);
+
+        vector<double> blk;
+        _core->addMapBlock(blk);
+        _core_empty->addMapBlock(blk);
+        _core_no_inflation->addMapBlock(blk);
 
         _has_map = true;
     
@@ -512,6 +520,8 @@ public:
             _map_stamp = ros::Time::now();
 
             _core->initMap();
+            vector<double> bdy {-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
+            _core->addMapBlock(bdy);
             //ROS_WARN("[GENERATOR] map initalized.");
         }
     }
@@ -827,7 +837,7 @@ public:
             _odom.pose.pose.position.z + _EPS,
             _odom.twist.twist.linear.x,
             _odom.twist.twist.linear.y,
-            _odom.twist.twist.linear.z,
+            0.0, // veclocity on z direction.
             0.0,
             0.0,
             0.0
