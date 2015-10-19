@@ -490,6 +490,7 @@ namespace VoxelTrajectory
 
     void OctoMap::dealWithLog()
     {
+        if (log.empty()) return ;
         int old_id = (int) graph_node_ptr.size();
         graph_node_ptr.resize(node.size());
 
@@ -514,11 +515,11 @@ namespace VoxelTrajectory
             }
         }
 
+        double bdy[_TOT_BDY];
         for (auto id : log)
         {
             if (id > 0 && node[id].tag == _TAG_EMP) 
             {
-                double bdy[_TOT_BDY];
                 for (int dim = 0; dim < _TOT_BDY; dim += 2)
                 {
                     memcpy(bdy, node[id].bdy, sizeof(double) * _TOT_BDY);
@@ -785,7 +786,11 @@ namespace VoxelTrajectory
                 (bdy[_BDY_y] < bdy[_BDY_Y]) &&
                 (bdy[_BDY_z] < bdy[_BDY_Z])
               );
-        return testEmpty(bdy, _NODE_ROOT);
+        bool ret = testEmpty(bdy, _NODE_ROOT);
+
+        dealWithLog();
+
+        return ret;
     }
 
     bool OctoMap::testEmpty(const double bdy[_TOT_BDY], int rt)
