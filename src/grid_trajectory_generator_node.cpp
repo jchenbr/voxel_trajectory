@@ -869,6 +869,7 @@ public:
             0.0, 0.0, 0.0
         };
 
+        /*
         if (wp.header.frame_id == "pass")
         {
             state.resize(_TOT_DIM * 3, 0.0);
@@ -876,6 +877,7 @@ public:
             state[_DIM_y] = wp.poses.back().pose.position.y;
             state[_DIM_z] = wp.poses.back().pose.position.z;
         }
+        */
 
         _waypoints.clear();
         _waypoints.reserve(wp.poses.size() * _TOT_DIM);
