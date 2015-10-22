@@ -2,6 +2,8 @@
 //#define _TRAJECTORY_TRAJECTROY_USE_MAVLINK_MSG_
 #define _TRAJECTORY_USE_VISUALIZATION_
 
+//#define _FLAG_USE_NO_INFLATION_MAP_
+
 #include "voxel_trajectory/voxelserver.h"
 #include "voxel_trajectory/voxelmacro.h"
 
@@ -13,6 +15,7 @@
 #include "tf/transform_datatypes.h"
 //#include "pcl/io/pcd_io.h"
 //#include "pcl/point_types.h"
+
 // standard messages
 #include "std_msgs/String.h"
 #include "sensor_msgs/PointCloud2.h"
@@ -93,6 +96,7 @@ private:
     double _allowed_ground_height = 0.3;
     double _flight_height_limit = 100.0;
     double _bdy[_TOT_BDY];
+    double _scan_bdy[_TOT_BDY];
 
     // trajectory
     uint32_t _traj_id = 1;
@@ -214,7 +218,13 @@ public:
         handle.param("setting/laser_scan_step", _laser_scan_step, 0.2);
         handle.param("setting/laser_scan_resolution", _laser_scan_resolution, 0.05);
         handle.param("setting/ratio_z_init_velocity", _ratio_init_z_velocity, 0.5);
-
+        handle.param("scan/boundary/lower_x", _scan_bdy[_BDY_x], _bdy[_BDY_x]);
+        handle.param("scan/boundary/upper_x", _scan_bdy[_BDY_X], _bdy[_BDY_X]);
+        handle.param("scan/boundary/lower_y", _scan_bdy[_BDY_y], _bdy[_BDY_y]);
+        handle.param("scan/boundary/upper_y", _scan_bdy[_BDY_Y], _bdy[_BDY_Y]);
+        handle.param("scan/boundary/lower_z", _scan_bdy[_BDY_z], _bdy[_BDY_z]);
+        handle.param("scan/boundary/upper_z", _scan_bdy[_BDY_Z], _bdy[_BDY_Z]);
+ 
         this->buildMap(_bdy, _resolution, _safe_margin, _max_acc, _max_vel, _f_vel, _f_acc);
         vector<double> bdy{-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
         _core->addMapBlock(bdy);
@@ -611,6 +621,14 @@ public:
         {
             auto pt = rotate * Eigen::Vector3d(lp.x, lp.y, lp.z) + trans;
 
+            if (
+                    pt(_DIM_x) < _scan_bdy[_BDY_x] || pt(_DIM_x) > _scan_bdy[_BDY_X] ||
+                    pt(_DIM_y) < _scan_bdy[_BDY_y] || pt(_DIM_y) > _scan_bdy[_BDY_Y] ||
+                    pt(_DIM_z) < _scan_bdy[_BDY_z] || pt(_DIM_z) > _scan_bdy[_BDY_Z] )
+            {
+                continue;
+            }
+
             if (_is_first_pt)
             {
                 _is_first_pt = false;
@@ -621,11 +639,14 @@ public:
             }
             _last_pt = pt;
 
+#if 0
             geometry_msgs::Point vis_pt;
             vis_pt.x = pt(_DIM_x);
             vis_pt.y = pt(_DIM_y);
             vis_pt.z = pt(_DIM_z);
-            //mk.points.push_back(vis_pt); 
+            mk.points.push_back(vis_pt); 
+#endif
+            
 
             blk.push_back(pt(_DIM_x) - _safe_margin);
             blk.push_back(pt(_DIM_x) + _safe_margin);
@@ -643,12 +664,14 @@ public:
                 blk.push_back(pt(_DIM_z) + _safe_margin + _extra_obstacle_height);
             }
 
+#ifdef _FLAG_USE_NO_INFLATION_MAP_
             blk_no_inflation.push_back(pt(_DIM_x) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_x) + _EPS);
             blk_no_inflation.push_back(pt(_DIM_y) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_y) + _EPS);
             blk_no_inflation.push_back(pt(_DIM_z) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_z) + _EPS);
+#endif 
         }
         //_laser_vis_pub.publish(mk);
         ros::Time pre_insertion;
@@ -830,11 +853,8 @@ public:
 
 
         VoxelTrajectory::VoxelServer * p_core = _core;
-#if 1
+
         if (wp.header.frame_id == "nomap") p_core = _core_empty;
-#else
-        p_core = _core_empty;
-#endif
 
         _pos_cmd.trajectory_id = ++_traj_id;
 
@@ -846,10 +866,16 @@ public:
             _odom.twist.twist.linear.x,
             _odom.twist.twist.linear.y,
             _odom.twist.twist.linear.z * _ratio_init_z_velocity,
-            0.0,
-            0.0,
-            0.0
+            0.0, 0.0, 0.0
         };
+
+        if (wp.header.frame_id == "pass")
+        {
+            state.resize(_TOT_DIM * 3, 0.0);
+            state[_DIM_x] = wp.poses.back().pose.position.x;
+            state[_DIM_y] = wp.poses.back().pose.position.y;
+            state[_DIM_z] = wp.poses.back().pose.position.z;
+        }
 
         _waypoints.clear();
         _waypoints.reserve(wp.poses.size() * _TOT_DIM);
