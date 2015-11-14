@@ -2,6 +2,8 @@
 //#define _TRAJECTORY_TRAJECTROY_USE_MAVLINK_MSG_
 #define _TRAJECTORY_USE_VISUALIZATION_
 
+//#define _FLAG_USE_NO_INFLATION_MAP_
+
 #include "voxel_trajectory/voxelserver.h"
 #include "voxel_trajectory/voxelmacro.h"
 
@@ -13,6 +15,7 @@
 #include "tf/transform_datatypes.h"
 //#include "pcl/io/pcd_io.h"
 //#include "pcl/point_types.h"
+
 // standard messages
 #include "std_msgs/String.h"
 #include "sensor_msgs/PointCloud2.h"
@@ -34,6 +37,7 @@
 #include <set>
 #include <deque>
 #include <sstream>
+#include <cmath>
 
 
 
@@ -46,6 +50,7 @@ private:
     VoxelTrajectory::VoxelServer * _core = new VoxelTrajectory::VoxelServer();
     const double _EPS = 1e-9;
     const double _EPS_POS = 1e-1;
+    const double _PI = acos(-1);
 
     // interface
     // service
@@ -91,6 +96,7 @@ private:
     double _allowed_ground_height = 0.3;
     double _flight_height_limit = 100.0;
     double _bdy[_TOT_BDY];
+    double _scan_bdy[_TOT_BDY];
 
     // trajectory
     uint32_t _traj_id = 1;
@@ -128,6 +134,8 @@ private:
     ros::Duration _map_duration = ros::Duration(2.0);
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
+    
+    double _ratio_init_z_velocity = 0.5;
 
     double _vis_traj_width = 0.1;
 
@@ -204,13 +212,23 @@ public:
         handle.param("max_acceleration", _max_acc, 1.0);
         handle.param("flight_velocity", _f_vel, _max_vel);
         handle.param("flight_acceleration", _f_acc, _max_acc);
-        handle.param("setting/flight_height_limit", _flight_height_limit, -1e7);
+        handle.param("setting/flight_height_limit", _flight_height_limit, 1e7);
         handle.param("setting/extra_obstacle_height", _extra_obstacle_height, 0.0);
         handle.param("setting/allowed_ground_height", _allowed_ground_height, 1e7);
         handle.param("setting/laser_scan_step", _laser_scan_step, 0.2);
         handle.param("setting/laser_scan_resolution", _laser_scan_resolution, 0.05);
-
+        handle.param("setting/ratio_z_init_velocity", _ratio_init_z_velocity, 0.5);
+        handle.param("scan/boundary/lower_x", _scan_bdy[_BDY_x], _bdy[_BDY_x]);
+        handle.param("scan/boundary/upper_x", _scan_bdy[_BDY_X], _bdy[_BDY_X]);
+        handle.param("scan/boundary/lower_y", _scan_bdy[_BDY_y], _bdy[_BDY_y]);
+        handle.param("scan/boundary/upper_y", _scan_bdy[_BDY_Y], _bdy[_BDY_Y]);
+        handle.param("scan/boundary/lower_z", _scan_bdy[_BDY_z], _bdy[_BDY_z]);
+        handle.param("scan/boundary/upper_z", _scan_bdy[_BDY_Z], _bdy[_BDY_Z]);
+ 
         this->buildMap(_bdy, _resolution, _safe_margin, _max_acc, _max_vel, _f_vel, _f_acc);
+        vector<double> bdy{-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
+        _core->addMapBlock(bdy);
+        _core_empty->addMapBlock(bdy);
 
         double map_duration;
         handle.param("map/map_duration", map_duration, 2.0);
@@ -242,14 +260,24 @@ public:
         _core_no_inflation->setFlightVelocity(f_vel);
         _core_no_inflation->setFlightAcceleration(f_acc);
 
-        double _bdy [] {-1000, 1000, -1000, 1000, 0, 2000};
-        _core_empty->setMapBoundary(_bdy);
-        _core_empty->setResolution(resolution);
-        _core_empty->setMargin(0.0);
+        double bdy_free[]
+        {
+            bdy[_BDY_x] - 5, bdy[_BDY_X] + 5,
+            bdy[_BDY_y] - 5, bdy[_BDY_Y] + 5,
+            bdy[_BDY_z] - 5, bdy[_BDY_Z] + 5
+        };
+        _core_empty->setMapBoundary(bdy_free);
+        _core_empty->setResolution(_resolution);
+        _core_empty->setMargin(_safe_margin);
         _core_empty->setMaxVelocity(max_vel);
         _core_empty->setMaxAcceleration(max_acc);
         _core_empty->setFlightVelocity(f_vel);
         _core_empty->setFlightAcceleration(f_acc);
+
+        vector<double> blk;
+        _core->addMapBlock(blk);
+        _core_empty->addMapBlock(blk);
+        _core_no_inflation->addMapBlock(blk);
 
         _has_map = true;
     
@@ -360,8 +388,8 @@ public:
 
     void checkHalfWay()
     {
-        ROS_INFO("[GENERATOR] Checking halfway obstacle!! ");
-        ROS_INFO("[GENERATOR] result = %d", _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()));
+        //ROS_INFO("[GENERATOR] Checking halfway obstacle!! ");
+        //ROS_INFO("[GENERATOR] result = %d", _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()));
         if (_has_traj && _odom.header.stamp < _final_time 
                 && _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()))
         {
@@ -510,6 +538,8 @@ public:
             _map_stamp = ros::Time::now();
 
             _core->initMap();
+            vector<double> bdy {-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
+            _core->addMapBlock(bdy);
             //ROS_WARN("[GENERATOR] map initalized.");
         }
     }
@@ -591,6 +621,14 @@ public:
         {
             auto pt = rotate * Eigen::Vector3d(lp.x, lp.y, lp.z) + trans;
 
+            if (
+                    pt(_DIM_x) < _scan_bdy[_BDY_x] || pt(_DIM_x) > _scan_bdy[_BDY_X] ||
+                    pt(_DIM_y) < _scan_bdy[_BDY_y] || pt(_DIM_y) > _scan_bdy[_BDY_Y] ||
+                    pt(_DIM_z) < _scan_bdy[_BDY_z] || pt(_DIM_z) > _scan_bdy[_BDY_Z] )
+            {
+                continue;
+            }
+
             if (_is_first_pt)
             {
                 _is_first_pt = false;
@@ -601,11 +639,14 @@ public:
             }
             _last_pt = pt;
 
+#if 0
             geometry_msgs::Point vis_pt;
             vis_pt.x = pt(_DIM_x);
             vis_pt.y = pt(_DIM_y);
             vis_pt.z = pt(_DIM_z);
-            //mk.points.push_back(vis_pt); 
+            mk.points.push_back(vis_pt); 
+#endif
+            
 
             blk.push_back(pt(_DIM_x) - _safe_margin);
             blk.push_back(pt(_DIM_x) + _safe_margin);
@@ -623,12 +664,14 @@ public:
                 blk.push_back(pt(_DIM_z) + _safe_margin + _extra_obstacle_height);
             }
 
+#ifdef _FLAG_USE_NO_INFLATION_MAP_
             blk_no_inflation.push_back(pt(_DIM_x) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_x) + _EPS);
             blk_no_inflation.push_back(pt(_DIM_y) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_y) + _EPS);
             blk_no_inflation.push_back(pt(_DIM_z) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_z) + _EPS);
+#endif 
         }
         //_laser_vis_pub.publish(mk);
         ros::Time pre_insertion;
@@ -810,11 +853,8 @@ public:
 
 
         VoxelTrajectory::VoxelServer * p_core = _core;
-#if 1
+
         if (wp.header.frame_id == "nomap") p_core = _core_empty;
-#else
-        p_core = _core_empty;
-#endif
 
         _pos_cmd.trajectory_id = ++_traj_id;
 
@@ -825,11 +865,19 @@ public:
             _odom.pose.pose.position.z + _EPS,
             _odom.twist.twist.linear.x,
             _odom.twist.twist.linear.y,
-            _odom.twist.twist.linear.z,
-            0.0,
-            0.0,
-            0.0
+            _odom.twist.twist.linear.z * _ratio_init_z_velocity,
+            0.0, 0.0, 0.0
         };
+
+        /*
+        if (wp.header.frame_id == "pass")
+        {
+            state.resize(_TOT_DIM * 3, 0.0);
+            state[_DIM_x] = wp.poses.back().pose.position.x;
+            state[_DIM_y] = wp.poses.back().pose.position.y;
+            state[_DIM_z] = wp.poses.back().pose.position.z;
+        }
+        */
 
         _waypoints.clear();
         _waypoints.reserve(wp.poses.size() * _TOT_DIM);
@@ -852,6 +900,10 @@ public:
             ROS_INFO("[GENERATOR] Generating the trajectory failed!");
             _last_dest.pose.pose = _odom.pose.pose;
             _final_time = ros::TIME_MIN;
+
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_WARN_IMPOSSIBLE;
+            _traj_pub.publish(_traj);
+            _has_traj = false;
         }
         else
         {
@@ -863,6 +915,11 @@ public:
             _traj = p_core->getTraj();
             _traj.start_yaw = tf::getYaw(_odom.pose.pose.orientation);
             _traj.final_yaw = tf::getYaw(wp.poses.back().pose.orientation);
+
+            if (abs( (_traj.start_yaw + 2 * _PI) - _traj.final_yaw) < _PI)
+                _traj.start_yaw += 2 * _PI;
+            if (abs( (_traj.start_yaw - 2 * _PI) - _traj.final_yaw) < _PI)
+                _traj.start_yaw -= 2 * _PI;
 
             _traj.header.frame_id = "/map";
             _traj.trajectory_id = _traj_id;
@@ -882,9 +939,9 @@ public:
                 << p_core->qp_cost[_DIM_z] << ".";
             debug_info.data = sin.str();
             _debug_pub.publish(debug_info);
+            _has_traj = true;
         }
 
-        _has_traj = true;
         ROS_INFO("[GENERATOR] Starting visualization.");
         visTrajectory();
         ROS_INFO("[GENERATOR] Trajectory visualzation finished.");

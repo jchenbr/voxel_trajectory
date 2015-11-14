@@ -109,8 +109,12 @@ public:
         //> Get simplified point cloud
         vector<double> getPointCloud()
         {
+<<<<<<< HEAD
             if (voxel_map == NULL) return vector<double>();
 
+=======
+            if (voxel_map == NULL) return vector<double>(0);
+>>>>>>> origin/iarc
             return voxel_map->getPointCloud();
         }
 
@@ -146,6 +150,7 @@ public:
 
 	bool isVaild3DPoint(double x, double y, double z)
         {
+            if (voxel_map == NULL) return true;
             double pt[_TOT_DIM]  {x, y, z};
             return !voxel_map->testObstacle(pt);
         }
@@ -642,6 +647,8 @@ public:
         {
             //clog<<"[t_now] = "<< t_now << ", [init_time] = " << init_time << ", "<< t_now - init_time<<endl;
             //clog<<"[ T ]" << T.transpose() << endl;
+            if (T.cols() == 0 || !hasTraj) return vector<double>(0); 
+
             t_now -= init_time;
             vector<double > ret(3 * 3, 0);
             int iSeg = 0;
