@@ -133,7 +133,7 @@ include_directories(
 
 add_library(octomap_		src/voxel_trajectory/octomap.cpp)
 add_library(voxelgraph_		src/voxel_trajectory/voxel_graph.cpp)
-add_library(trajectorygenerator_	src/voxel_trajectory/trajectorygenerator.cpp)
+add_library(trajectorygenerator_	src/voxel_trajectory/trajectory_generator_fast.cpp)
 add_library(trajectorygenerator_no_inflation	src/voxel_trajectory/trajectorygenerator_no_inflation.cpp)
 
 ## Declare a cpp executable
