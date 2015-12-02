@@ -86,28 +86,10 @@ namespace VoxelTrajectory
             const int M,
             const int N,
             const int R,
-            SMatrixXd &P2D, 
             SMatrixXd &D2D,
             SMatrixXd &RDF,
             SMatrixXd &RDD)
     {
-        { // mapping polynomial coefficients to derivatives
-            P2D.resize(M * N, M * N);
-            P2D.reserve(M * N * N);
-            for (int i = 0; i < M; ++i)
-            {
-                for (int k = 0; k < R; ++k)
-                {
-                    for (int j = k; j < N; ++j)
-                    {
-                        P2D.insert(i * N + k, i * N + j) = 
-                            chooseKInN(j, k);
-                        P2D.insert(i * N + R + k, i * N + j) = 
-                            chooseKInN(j, k) * pow(T(i), j - k);
-                    }
-                }
-            }
-        }
 
         { // mapping the equalled derivatives into the same one
             D2D.resize( (M + 1) * R, M * N);
@@ -1273,7 +1255,7 @@ static int _error_code = 0;
 
         // clog << "3.5. CE."<<endl;
        
-        SMatrixXd P2D, D2D, RDD, RDF, RD; 
+        SMatrixXd D2D, RDD, RDF, RD; 
         VectorXd d_f;
         int n_d, n_f;
         { // get those mapping matrices
@@ -1290,7 +1272,7 @@ static int _error_code = 0;
             // clog << "d_F = " << d_F.transpose() << endl;
         
             // clog << "4.1. preparation well" << endl;
-            genMappingMatrices(T, is_fixed, M, N, R, P2D, D2D, RDF, RDD);
+            genMappingMatrices(T, is_fixed, M, N, R, D2D, RDF, RDD);
             RD = combineRowsSM(RDD, RDF);
             n_d = RDD.rows();
             n_f = RDF.rows();
