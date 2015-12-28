@@ -503,7 +503,28 @@ namespace VoxelTrajectory
             CE.insert(R + j, M * R + j) = 1.0;
         }
 
-        return make_pair(CE, b);
+        int c_wp = 0, i_wp = 0;
+        for (int i = 0; i + 1 < M; ++i)
+        {
+            c_wp += E(i, 0) + _EPS > E(i, 1) && (B.row(i) - B.row(i + 1)).norm() < _EPS;
+        }
+
+        SMatrixXd CE_wp(c_wp, (M + 1) * R);
+        CE_wp.reserve(c_wp);
+        VectorXd b_wp(c_wp);
+
+        for (int i = 0; i + 1 < M; ++i)
+        {
+            if (E(i, 0) + _EPS > E(i, 1) && (B.row(i) - B.row(i + 1)).norm() < _EPS)
+            {
+                CE_wp.insert(i_wp, (i + 1) * R + 0) = 1.0;
+
+                b_wp(i_wp++) = E(i, 0);
+            }
+        }
+
+        return combineRowsPr(make_pair(CE, b), make_pair(CE_wp, b_wp));
+
     }
 
     static pair<SMatrixXd, VectorXd> getConstrainsEndpoints(
