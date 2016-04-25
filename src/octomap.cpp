@@ -145,18 +145,21 @@ namespace VoxelTrajectory
         retShareArea(box, bdy, tmp);
         return isHot(tmp);
     }
-    
+    static int n_vis = 0;
     void OctoMap::insertBlock(const double bdy[_TOT_BDY])
     {
         assert(bdy[_BDY_x] < bdy[_BDY_X]);
         assert(bdy[_BDY_y] < bdy[_BDY_Y]);
         assert(bdy[_BDY_z] < bdy[_BDY_Z]);
 
+        n_vis = 0;
         insertBlock(bdy, _NODE_ROOT);
+        clog << "##visited = " << n_vis << endl;
     }
 
     void OctoMap::insertBlock(const double bdy[_TOT_BDY], int rt)
     {
+        n_vis += 1;
         if (!isIntersected(bdy, node[rt].bdy)) return ;
 
         node[rt].tag    |= _TAG_OBS;

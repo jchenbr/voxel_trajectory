@@ -33,11 +33,15 @@
 #include "laser_geometry/laser_geometry.h"
 #include "voxel_trajectory/CheckObstacleByPoints.h"
 
+#include <pcl_ros/point_cloud.h>
+#include <pcl/point_types.h>
+#include <voxel_map/voxel_map.h>
 #include <vector>
 #include <set>
 #include <deque>
 #include <sstream>
 #include <cmath>
+
 
 
 
@@ -48,6 +52,7 @@ class TrajectoryGenerator
 private:
     // _core server
     VoxelTrajectory::VoxelServer * _core = new VoxelTrajectory::VoxelServer();
+
     const double _EPS = 1e-9;
     const double _EPS_POS = 1e-1;
     const double _PI = acos(-1);
@@ -59,9 +64,10 @@ private:
 
     // subscribers
     ros::Subscriber _odom_sub;
-    ros::Subscriber _obs_pt_sub, _obs_blk_sub;
+    ros::Subscriber _obs_pt_sub, _obs_blk_sub, _obs_blk1_sub;
     ros::Subscriber _dest_pt_sub, _dest_pts_sub; 
     ros::Subscriber _laser_sub;
+    ros::Subscriber _3d_laser_sub;
 
     // publishers
     ros::Publisher _desired_state_pub;
@@ -104,7 +110,7 @@ private:
     vector<double> _waypoints;
     vector<double> _arr_time;
 
-    const size_t _odom_queue_size = 200;
+    const size_t _odom_queue_size = 500;
     deque<nav_msgs::Odometry> _odom_queue;
 
     // input messages
@@ -116,8 +122,8 @@ private:
     quadrotor_msgs::PositionCommand _pos_cmd;
     quadrotor_msgs::PolynomialTrajectory _traj;
 
-    VoxelTrajectory::VoxelServer * _core_no_inflation = new VoxelTrajectory::VoxelServer();
-    VoxelTrajectory::VoxelServer * _core_empty = new VoxelTrajectory::VoxelServer();
+    //VoxelTrajectory::VoxelServer * _core_no_inflation = new VoxelTrajectory::VoxelServer();
+    //VoxelTrajectory::VoxelServer * _core_empty = new VoxelTrajectory::VoxelServer();
     visualization_msgs::Marker _traj_vis;
     visualization_msgs::MarkerArray _path_vis, _inflated_path_vis;
     sensor_msgs::PointCloud2 _map_vis;
@@ -134,6 +140,7 @@ private:
     ros::Duration _map_duration = ros::Duration(2.0);
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
+    double _laser_radius = 1000.0;
     
     double _ratio_init_z_velocity = 0.5;
 
@@ -157,8 +164,12 @@ public:
             handle.subscribe("obstacle_points", 2, &TrajectoryGenerator::rcvGlobalPointCloudCallback, this);
         _obs_blk_sub = 
             handle.subscribe("obstacle_blocks", 2, &TrajectoryGenerator::rcvGlobalBlocksCloudCallback, this);
+        _obs_blk1_sub = 
+            handle.subscribe("obstacle_blocks1", 2, &TrajectoryGenerator::rcvGlobalBlocksCloud1Callback, this);
         _laser_sub = 
             handle.subscribe("laser_scan", 5, &TrajectoryGenerator::rcvLaserScanCallback, this);
+        _3d_laser_sub = 
+            handle.subscribe("laser_scan_3d", 1, &TrajectoryGenerator::rcv3DLaserScanCallback, this);
 
         // set destination
         _dest_pt_sub = 
@@ -194,12 +205,34 @@ public:
             handle.advertise<std_msgs::String>("debug_info", 50);
 
         // others
+        double _vis_drt = 1.0;
+        handle.param("map/visualization_duration", _vis_drt, _vis_drt);
         _vis_map_timer = 
-            handle.createTimer(ros::Duration(1.0), &TrajectoryGenerator::visMap, this);
+            handle.createTimer(ros::Duration(_vis_drt), &TrajectoryGenerator::visMap, this);
         _vis_map_no_inflation_timer = 
-            handle.createTimer(ros::Duration(1.0), &TrajectoryGenerator::visMapNoInflation, this);
+            handle.createTimer(ros::Duration(_vis_drt), &TrajectoryGenerator::visMapNoInflation, this);
 
         handle.param("flag/visualization", _is_vis, true);
+        { // parameter for setting log odds
+            double log_odd[5];
+            handle.param("map/log_odd/min", log_odd[0], -2.0);
+            handle.param("map/log_odd/max", log_odd[1], 4.5);
+            handle.param("map/log_odd/occupy", log_odd[2], 0.0);
+            handle.param("map/log_odd/hit", log_odd[3], 0.85);
+            handle.param("map/log_odd/miss", log_odd[4], -0.4);
+            _core->setLogOdd(log_odd);
+            double ob_radius;
+            handle.param("map/observation_radius", ob_radius, 10.0);
+            _laser_radius = ob_radius;
+            _core->setObservationRadius(ob_radius);
+        }
+        {
+            double tmp;
+            handle.param("map/dislike_margin",  tmp, _safe_margin);
+            _core->setDislikeMargin(tmp);
+            handle.param("map/path_resolution", tmp, _resolution);
+            _core->setPathResolution(tmp);
+        }
         handle.param("map/boundary/lower_x", _bdy[_BDY_x], -100.0);
         handle.param("map/boundary/upper_x", _bdy[_BDY_X], 100.0);
         handle.param("map/boundary/lower_y", _bdy[_BDY_y], -100.0);
@@ -224,11 +257,11 @@ public:
         handle.param("scan/boundary/upper_y", _scan_bdy[_BDY_Y], _bdy[_BDY_Y]);
         handle.param("scan/boundary/lower_z", _scan_bdy[_BDY_z], _bdy[_BDY_z]);
         handle.param("scan/boundary/upper_z", _scan_bdy[_BDY_Z], _bdy[_BDY_Z]);
- 
+
         this->buildMap(_bdy, _resolution, _safe_margin, _max_acc, _max_vel, _f_vel, _f_acc);
-        vector<double> bdy{-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
-        _core->addMapBlock(bdy);
-        _core_empty->addMapBlock(bdy);
+        //vector<double> bdy{-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
+        //_core->addMapBlock(bdy);
+        //_core_empty->addMapBlock(bdy);
 
         double map_duration;
         handle.param("map/map_duration", map_duration, 2.0);
@@ -251,7 +284,10 @@ public:
         _core->setMaxAcceleration(_max_acc = max_acc);
         _core->setFlightVelocity(_f_vel = f_vel);
         _core->setFlightAcceleration(_f_acc = f_acc);
+        vector<double> blk;
+        _core->addMapBlock(blk);
         
+#if 0
         _core_no_inflation->setMapBoundary(bdy);
         _core_no_inflation->setResolution(_resolution);
         _core_no_inflation->setMargin(_safe_margin);
@@ -273,12 +309,9 @@ public:
         _core_empty->setMaxAcceleration(max_acc);
         _core_empty->setFlightVelocity(f_vel);
         _core_empty->setFlightAcceleration(f_acc);
-
-        vector<double> blk;
-        _core->addMapBlock(blk);
         _core_empty->addMapBlock(blk);
         _core_no_inflation->addMapBlock(blk);
-
+#endif
         _has_map = true;
     
         double pos_gain[_TOT_DIM] = {3.7, 3.7, 5.2};
@@ -299,9 +332,9 @@ public:
 
     void publishDesiredState()
     {
-       //ROS_WARN("[TRAJ_SERVER] BEFORE go to publish desired state!");
+       // ROS_WARN("[TRAJ_SERVER] BEFORE go to publish desired state!");
        if (!_has_odom) return ; 
-       //ROS_WARN("[TRAJ_SERVER] go to publish desired state!");
+       // ROS_WARN("[TRAJ_SERVER] go to publish desired state!");
        // to do : get the desired state from the _core
        if (_has_traj)
        {
@@ -393,39 +426,26 @@ public:
         if (_has_traj && _odom.header.stamp < _final_time 
                 && _core->checkHalfWayObstacle_BrutalForce(_odom.header.stamp.toSec()))
         {
-            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
-            _traj_pub.publish(_traj);
-
             _final_time = ros::TIME_MIN;
             
-            if (_arr_time.size() * _TOT_DIM != _waypoints.size())
+            if (_waypoints.size() != _TOT_DIM)
             {
-                ROS_WARN("[GENERATOR] Replan failed. arr_time size = %lu, waypoints size = %lu",
-                        _arr_time.size(), _waypoints.size());
+                ROS_WARN("[GENERATOR] Replan failed. waypoint number = %d", (int)_waypoints.size());
                 return ;
             }
 
-            size_t vaild_id;
-            for (vaild_id = 0; vaild_id < _arr_time.size(); ++vaild_id)
-            {
-                if (_odom.header.stamp.toSec() < _arr_time[vaild_id]) break;
-            }
-
-            //ROS_INFO("[GENERATOR] now time = %.3lf", _odom.header.stamp.toSec());
-            //ROS_INFO("[GENERATOR] vaild id = %lu", vaild_id);
-
-            if (vaild_id >= _arr_time.size()) return ;
+            size_t vaild_id = 0;
 
             nav_msgs::Path path;
             path.header.stamp = _odom.header.stamp;
             path.header.frame_id = "/map";
-            path.poses.resize(_arr_time.size() - vaild_id);
+            path.poses.resize(1);
 
-            for (size_t idx = vaild_id; idx < _arr_time.size(); ++idx)
+            for (size_t idx = vaild_id; idx < _waypoints.size(); idx += _TOT_DIM)
             {
-                path.poses[idx - vaild_id].pose.position.x = _waypoints[idx * _TOT_DIM + _DIM_x];
-                path.poses[idx - vaild_id].pose.position.y = _waypoints[idx * _TOT_DIM + _DIM_y];
-                path.poses[idx - vaild_id].pose.position.z = _waypoints[idx * _TOT_DIM + _DIM_z];
+                path.poses[idx - vaild_id].pose.position.x = _waypoints[idx + _DIM_x];
+                path.poses[idx - vaild_id].pose.position.y = _waypoints[idx + _DIM_y];
+                path.poses[idx - vaild_id].pose.position.z = _waypoints[idx + _DIM_z];
             }
             auto quad = tf::createQuaternionFromYaw(_traj.final_yaw);
             path.poses.back().pose.orientation.w = quad.w();
@@ -435,13 +455,20 @@ public:
 
             rcvWaypointsCallback(path);
         }
-        //ROS_INFO("[GENERATOR] HALF_WAY_CHECK DONE!!");
+        if (_traj.action == quadrotor_msgs::PolynomialTrajectory::ACTION_ADD 
+               &&  _odom.header.stamp >= _final_time)
+        {
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
+            _traj_pub.publish(_traj);
+        }
+        // ROS_INFO("[GENERATOR] HALF_WAY_CHECK DONE!!");
     }
 
     bool checkObstacleByPoints(
             voxel_trajectory::CheckObstacleByPoints::Request & req,
             voxel_trajectory::CheckObstacleByPoints::Response & res)
     {
+        // ROS_WARN("[GENERATOR] POINTS_CHECK DONE!!");
         res.is_occupied.resize(req.size);
         for (size_t idx = 0; idx < req.size; ++idx)
         {
@@ -479,7 +506,7 @@ public:
 
         ros::Time pre_time = ros::Time::now();
         _core->addMapBlock(pt);
-        _core_no_inflation->addMapBlock(pt_no_inflation);
+        //_core_no_inflation->addMapBlock(pt_no_inflation);
 
         std_msgs::String debug_info;
         debug_info.data = "The_insertion_duration_: "  + to_string((ros::Time::now() - pre_time).toSec());
@@ -495,10 +522,11 @@ public:
         if (!_has_map) return ;
         initMap();
 
-        const float * data = reinterpret_cast<const float *>(cloud.data.data());
-        vector<double> blk, blk_no_inflation;
+        const double * data = reinterpret_cast<const double *>(cloud.data.data());
+        vector<double> blk;
+        // vector<double> blk_no_inflation;
         blk.reserve(cloud.width * _TOT_BDY);
-        blk_no_inflation.reserve(cloud.width * _TOT_BDY);
+        //blk_no_inflation.reserve(cloud.width * _TOT_BDY);
         for (size_t idx = 0; idx < cloud.width; ++idx)
         {
             blk.push_back(data[idx * _TOT_BDY + _BDY_x] - _safe_margin);    
@@ -508,17 +536,19 @@ public:
             blk.push_back(data[idx * _TOT_BDY + _BDY_z] - _safe_margin);    
             blk.push_back(data[idx * _TOT_BDY + _BDY_Z] + _safe_margin);    
 
+#if 0
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_x] - _EPS);
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_x] + _EPS);
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_y] - _EPS);
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_y] + _EPS);
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_z] - _EPS);
             blk_no_inflation.push_back(data[idx * _TOT_BDY + _BDY_z] + _EPS);
+#endif
         }
         
         ros::Time pre_time = ros::Time::now();
         _core->addMapBlock(blk);
-        _core_no_inflation->addMapBlock(blk_no_inflation);
+        //_core_no_inflation->addMapBlock(blk_no_inflation);
 
         std_msgs::String debug_info;
         debug_info.data = "The_insertion_duration_: "  + to_string((ros::Time::now() - pre_time).toSec());
@@ -529,6 +559,47 @@ public:
         // visMap();
     }
 
+    void rcvGlobalBlocksCloud1Callback(const sensor_msgs::PointCloud & cloud)
+    {
+        if (!_has_map) return ;
+        initMap();
+
+        vector<double> blk, blk_no_inflation;
+        blk.reserve(cloud.points.size() * _TOT_DIM);
+        blk_no_inflation.reserve(cloud.points.size() * _TOT_DIM);
+        
+        for (size_t idx = 0; idx < cloud.points.size(); idx += 2)
+        {
+            blk.push_back(cloud.points[idx].x - _safe_margin);    
+            blk.push_back(cloud.points[idx + 1].x + _safe_margin);    
+            blk.push_back(cloud.points[idx].y - _safe_margin);    
+            blk.push_back(cloud.points[idx + 1].y + _safe_margin);    
+            blk.push_back(cloud.points[idx].z - _safe_margin);    
+            blk.push_back(cloud.points[idx + 1].z + _safe_margin);   
+             
+            blk_no_inflation.push_back(cloud.points[idx].x - _safe_margin);    
+            blk_no_inflation.push_back(cloud.points[idx + 1].x + _safe_margin);    
+            blk_no_inflation.push_back(cloud.points[idx].y - _safe_margin);    
+            blk_no_inflation.push_back(cloud.points[idx + 1].y + _safe_margin);    
+            blk_no_inflation.push_back(cloud.points[idx].z - _safe_margin);    
+            blk_no_inflation.push_back(cloud.points[idx + 1].z + _safe_margin);    
+            //ROS_WARN_STREAM("[Generator ] blocks = " << blk[idx + 0] << "," << blk[idx + 1] << "," << blk[idx + 2] << ","
+            // << blk[idx + 3] << "," << blk[idx + 4] << "," << blk[idx + 5]);
+        }
+        ros::Time pre_time = ros::Time::now();
+        // ROS_WARN_STREAM("[Generator ] will insert " << blk.size() / 2 << "blocks");
+        _core->addMapBlock(blk);
+        //_core_no_inflation->addMapBlock(blk_no_inflation);
+
+        std_msgs::String debug_info;
+        debug_info.data = "The_insertion_duration_: "  + to_string((ros::Time::now() - pre_time).toSec());
+        _debug_pub.publish(debug_info);
+
+        checkHalfWay();
+
+        // visMap();
+    }
+    
     void initMap()
     {
         //ROS_INFO("[GENERATOR] now %.2lf, last %.2lf, duration %.2lf", 
@@ -538,10 +609,75 @@ public:
             _map_stamp = ros::Time::now();
 
             _core->initMap();
-            vector<double> bdy {-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
-            _core->addMapBlock(bdy);
-            //ROS_WARN("[GENERATOR] map initalized.");
+            //vector<double> bdy {-1e8, 1e8, -1e8, 1e8, _flight_height_limit, _flight_height_limit + _EPS_POS};
+            //_core->addMapBlock(bdy);
+            ROS_WARN("[GENERATOR] map initalized.");
         }
+    }
+
+    int laser_counter = 0;
+    void rcv3DLaserScanCallback(const sensor_msgs::PointCloud2 & cloud)
+    {
+        if (_odom_queue.empty()) return ;
+        if (cloud.header.stamp - _last_scan_stamp < ros::Duration(_laser_scan_step)) return ;
+        _last_scan_stamp = cloud.header.stamp;
+        initMap();
+        for (auto & odom: _odom_queue)
+        {
+            if (odom.header.stamp > cloud.header.stamp)
+            {
+                insert3DLaserScan(cloud, odom);
+                return ;
+            }
+        }
+        insert3DLaserScan(cloud, _odom_queue.back());
+        ++laser_counter;
+        ROS_WARN_STREAM("[Laser Counter]" << laser_counter << ", " << laser_counter << "!!!");
+    }
+
+    void insert3DLaserScan(const sensor_msgs::PointCloud2 & cloud, const nav_msgs::Odometry & odom)
+    {
+        vector<voxel_map::Ray> rays;
+
+        Eigen::Quaterniond quad(
+                odom.pose.pose.orientation.w,
+                odom.pose.pose.orientation.x,
+                odom.pose.pose.orientation.y,
+                odom.pose.pose.orientation.z);
+        auto rotate = quad.toRotationMatrix();
+
+        Eigen::Vector3d trans(
+                odom.pose.pose.position.x,
+                odom.pose.pose.position.y,
+                odom.pose.pose.position.z);
+
+        pcl::PointCloud<pcl::PointXYZ> pts;
+        pcl::fromROSMsg(cloud, pts);
+
+        for (size_t idx = 0; idx < pts.size(); idx += 1)
+        {
+            Eigen::Vector3d pt(pts[idx].x, pts[idx].y, pts[idx].z);
+            pt = rotate * pt + trans;
+            //if (abs(pt(2) - trans(2)) > 2) continue;
+            voxel_map::Ray ray;
+            ray.origin << trans;
+            ray.direct << pt - trans;
+            rays.push_back(ray);
+        }
+        _core->addRays(rays);
+        vector<voxel_map::Box> boxes;
+        for (auto & ray: rays)
+        {
+            if (ray.target()(2) <= _allowed_ground_height) continue;
+            if (ray.length() > _laser_radius) continue;
+            voxel_map::Box box;
+            box.lower << ray.target();
+            box.upper << ray.target();
+            box.lower(2) -= _extra_obstacle_height;
+            box.upper(2) += _extra_obstacle_height;
+            boxes.push_back(box);
+        }
+        _core->addBoxes(boxes);
     }
 
     void rcvLaserScanCallback(const sensor_msgs::LaserScan & scan)
@@ -586,6 +722,53 @@ public:
                 odom.pose.pose.position.y,
                 odom.pose.pose.position.z);
 
+#if 1
+        vector<voxel_map::Ray> rays;
+        rays.reserve(scan.ranges.size());
+        
+        bool _is_first_pt = true;
+        Eigen::Vector3d _last_pt;
+        for (auto lp: cloud.points)
+        {
+            auto pt = rotate * Eigen::Vector3d(lp.x, lp.y, lp.z) + trans;
+
+            if (
+                    pt(_DIM_x) < _scan_bdy[_BDY_x] || pt(_DIM_x) > _scan_bdy[_BDY_X] ||
+                    pt(_DIM_y) < _scan_bdy[_BDY_y] || pt(_DIM_y) > _scan_bdy[_BDY_Y] ||
+                    pt(_DIM_z) < _scan_bdy[_BDY_z] || pt(_DIM_z) > _scan_bdy[_BDY_Z] )
+            {
+                continue;
+            }
+
+            if (_is_first_pt)
+            {
+                _is_first_pt = false;
+            }
+            else
+            {
+                if ((pt - _last_pt).norm() < _laser_scan_resolution) continue;
+            }
+            _last_pt = pt;
+            voxel_map::Ray ray;
+            ray.origin << odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z;
+            ray.direct << pt(0) - ray.origin(0), pt(1) - ray.origin(1), pt(2) - ray.origin(2);
+            rays.push_back(ray);
+        }
+        _core->addRays(rays);
+        vector<voxel_map::Box> boxes;
+        for (auto & ray: rays)
+        {
+            if (ray.target()(2) <= _allowed_ground_height) continue;
+            if (ray.length() > _laser_radius) continue;
+            voxel_map::Box box;
+            box.lower << ray.target();
+            box.upper << ray.target();
+            box.lower(2) -= _extra_obstacle_height;
+            box.upper(2) += _extra_obstacle_height;
+            boxes.push_back(box);
+        }
+        _core->addBoxes(boxes);
+#else
         // get the local coordinate & store in Eigen vector
         vector<double> blk, blk_no_inflation;
         blk.reserve(scan.ranges.size() * _TOT_BDY);
@@ -647,7 +830,6 @@ public:
             mk.points.push_back(vis_pt); 
 #endif
             
-
             blk.push_back(pt(_DIM_x) - _safe_margin);
             blk.push_back(pt(_DIM_x) + _safe_margin);
             blk.push_back(pt(_DIM_y) - _safe_margin);
@@ -672,6 +854,7 @@ public:
             blk_no_inflation.push_back(pt(_DIM_z) - _EPS);
             blk_no_inflation.push_back(pt(_DIM_z) + _EPS);
 #endif 
+
         }
         //_laser_vis_pub.publish(mk);
         ros::Time pre_insertion;
@@ -684,6 +867,7 @@ public:
         debug_info.data = "The_scan_duration_: "  + to_string(insertion_duration.toSec());
         _debug_pub.publish(debug_info);
 
+#endif
         checkHalfWay();
 
         // visMap();
@@ -849,8 +1033,9 @@ public:
 
     void rcvWaypointsCallback(const nav_msgs::Path & wp)
     {
+        ROS_WARN("rcv waypoints");
         if (!_has_map || !_has_odom) return ;
-
+        //if (wp.poses.size() == 0) return ;
 
         VoxelTrajectory::VoxelServer * p_core = _core;
 
@@ -967,6 +1152,7 @@ public:
 
     void visMap(const ros::TimerEvent& evt)
     {
+        laser_counter = 0;
         //ROS_INFO("[GENERATOR] Map visualization start... flag : is_vis = %d, has_map = %d",
                // _is_vis, _has_map);
 
@@ -1106,12 +1292,12 @@ public:
 
         double t_begin = _core->getBeginTime(), t_final = _core->getFinalTime();
         _traj_vis.points.clear();
-        ROS_INFO("[GENERATOR] Trajectory time : %.3lf %.3lf", t_begin, t_final);
+        // ROS_INFO("[GENERATOR] Trajectory time : %.3lf %.3lf", t_begin, t_final);
         _traj_vis.points.reserve(static_cast<int>((t_final - t_begin) * 100 + 0.5));
         vector<double> state;
         geometry_msgs::Point pt;
 
-        ROS_INFO("[GENERATOR] Trajectory visualization prepared.");
+        // ROS_INFO("[GENERATOR] Trajectory visualization prepared.");
 
         for (double t = t_begin; t < t_final; t += 0.02, count += 1)
         {
@@ -1125,13 +1311,13 @@ public:
             pre = cur;
         }
 
-        ROS_INFO("[GENERATOR] The length of the trajectory; %.3lfm.", traj_len);
+        // ROS_INFO("[GENERATOR] The length of the trajectory; %.3lfm.", traj_len);
         _traj_vis_pub.publish(_traj_vis);
     }
 
     void visPath()
     {
-        if (!_is_vis || !_has_traj) return ;
+        if (!_is_vis) return ;
 
         for (auto & mk: _path_vis.markers) 
             mk.action = visualization_msgs::Marker::DELETE;

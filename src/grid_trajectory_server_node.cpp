@@ -39,7 +39,7 @@ public:
     TrajectoryServer(ros::NodeHandle & handle)
     {
         _odom_sub = 
-            handle.subscribe("odometry", 50, &TrajectoryServer::rcvOdometryCallback, this);
+            handle.subscribe("odometry", 50, &TrajectoryServer::rcvOdometryCallback, this, ros::TransportHints().tcpNoDelay());
 
         _traj_sub =
             handle.subscribe("trajectory", 2, &TrajectoryServer::rcvTrajectoryCallabck, this);
