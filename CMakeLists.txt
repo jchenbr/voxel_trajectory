@@ -14,8 +14,12 @@ find_package(catkin REQUIRED COMPONENTS
  # mavlink_message
   laser_geometry
   message_generation
+  voxel_map
+  pcl_ros
 )
 
+find_package(PCL 1.7 REQUIRED )
+include_directories(${PCL_INCLUDE_DIRS})
 find_package(Eigen3 REQUIRED )
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
@@ -92,11 +96,11 @@ set(CMAKE_CXX_FLAGS "-std=c++11 -O3 -g ${CMAKE_CXX_FLAGS}")
 # )
 
 ## Generate added messages and services with any dependencies listed here
- generate_messages(
-   DEPENDENCIES
-   std_msgs
+# generate_messages(
+#   DEPENDENCIES
+#   std_msgs
 #   senesor_msgs
- )
+# )
 
 ###################################
 ## catkin specific configuration ##
@@ -153,7 +157,7 @@ add_executable(mission_commander_node src/mission_commander_node.cpp)
 
 add_executable(voxel_set_obstacle_node src/voxel_set_obstacle_node.cpp)
 
-add_executable(trajectory_server_node src/trajectory_server_node.cpp)
+#add_executable(trajectory_server_node src/trajectory_server_node.cpp)
 
 add_executable(test_limited_sensing_node src/test_limited_sensing_node.cpp)
 
@@ -214,22 +218,6 @@ target_link_libraries(test_limited_sensing_node
     octomap_
 )
 
-target_link_libraries(trajectory_server_node
-    ${catkin_LIBRARIES}
-    ${OMPL_LIBRARIES}
-
-    octomap_
-    trajectorygenerator_no_inflation
-
-    ooqpgensparse
-    ooqpsparse
-    ooqpgondzio
-    ooqpbase
-    blas
-    ma27
-    gfortran
-)
-
 #target_link_libraries( voxel_trajectory_generator_node
 #	${catkin_LIBRARIES}
 #	${PCL_COMMON_LIBRRIES}
@@ -280,6 +268,7 @@ target_link_libraries(voxel_set_obstacle_node
 
 target_link_libraries(grid_trajectory_generator_node
     ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
 
     octomap_
     trajectorygenerator_
@@ -291,6 +280,7 @@ target_link_libraries(grid_trajectory_generator_node
     blas
     ma27
     gfortran
+    voxel_map
 )
 
 target_link_libraries(grid_trajectory_server_node
