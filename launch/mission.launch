@@ -1,9 +1,0 @@
-<launch>
-  <node
-    pkg     = "voxel_trajectory"
-    type    = "mission_commander_node"
-    output  = "screen"
-    name    = "mission_commander">
-
-  </node>
-</launch>

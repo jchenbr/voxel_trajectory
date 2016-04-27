@@ -1,0 +1,37 @@
+init :
+    visualization : true
+    
+setting :
+    flight_height_limit : 10
+    extra_obstacle_height : 2.5
+    allowed_ground_height : 0.5
+    laser_scan_step : 0.001
+    laser_scan_resolution : 0.0
+    
+map :
+    visualization_duration : 1
+    observation_radius : 10.0
+    log_odd :
+        min : -2.0
+        max : 4.5
+        occupy : 0.0
+        hit : 2.85
+        miss : -0.4
+    boundary :
+        lower_x : -20.0
+        upper_x : 20.0
+        lower_y : -20.0
+        upper_y : 20.0
+        lower_z : 0.0
+        upper_z : 40.0
+    safe_margin : 0.2
+    map_duration : 1000000
+    resolution : 0.2
+    path_resolution : 0.2
+    dislike_margin : 0.4
+    dislike_factor : 10.0
+    
+max_velocity : 2.0
+max_acceleration : 2.0    
+flight_velocity : 1.5
+flight_acceleration : 4

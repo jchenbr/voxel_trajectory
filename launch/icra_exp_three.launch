@@ -1,8 +1,43 @@
 <launch>
+
+    <param name	= "test_mode" value = "4"/>
+    <param name	= "/random_forest/tot_num" value = "180"/>
+
+    <param name	= "/random_forest/h_mean" value = "7"/>
+    <param name	= "/random_forest/h_var" value = "1"/>
+
+    <param name	= "/random_forest/r_mean" value = "0.2"/>
+    <param name	= "/random_forest/r_var" value = "0.5"/>
+
+    <param name	= "/random_forest/H_mean" value = "0.0"/>
+    <param name	= "/random_forest/H_var" value = "0.0"/>
+
+    <param name	= "/random_forest/W_mean" value = "0.0"/>
+    <param name	= "/random_forest/W_var" value = "0.0"/>
+
+    <param name = "/map_x_lower_bound" value = "-20"/>
+    <param name = "/map_x_upper_bound" value = "20"/>
+    <param name = "/map_y_lower_bound" value = "-20"/>
+    <param name = "/map_y_upper_bound" value = "20"/>
+    <param name = "/map_z_lower_bound" value = "0"/>
+    <param name = "/map_z_upper_bound" value = "40"/>
+
+    <node 
+        name    = "rosbagmap"
+        pkg     = "rosbag"
+        type    = "play"
+        respawn = "false"
+        args    = "/home/jchenbr/catkin_ws/exp/01/map.bag /trajectory_generator/map_no_inflation_vis:=/limited_sensor/sensed_points"/>
+
+
+    <!-- <include file="$(find voxel_trajectory)/launch/sep_traj.launch"/> -->
+    <include file="$(find voxel_trajectory)/launch/sep_quadrotor.launch"/>
+    <include file="$(find voxel_trajectory)/launch/sep_vis.launch"/>
+
     <node
         pkg     = "voxel_trajectory"
         type    = "grid_trajectory_generator_node"
-        output  = "screen"
+        output  = "log"
         name    = "trajectory_generator">
 
         <param  name = "init/visualization" value = "true"/>
@@ -19,10 +54,8 @@
         <param  name = "map/boundary/upper_y"  value = "20.0"/>
         <param  name = "map/boundary/lower_z"  value = "0.0"/>
         <param  name = "map/boundary/upper_z"  value = "40.0"/>
-        <param  name = "map/safe_margin"  value = "0.008"/>
-        <param  name = "map/map_duration"  value = "100000"/>
-
         <param  name = "map/resolution"  value = "0.008"/>
+        <param  name = "map/safe_margin"  value = "0.5"/>
 
         <param  name = "max_velocity"  value = "3.0"/>
         <param  name = "max_acceleration"  value = "3.0"/>
@@ -60,5 +93,6 @@
         <!-- subscribed topics -->
         <remap  from = "~position_command"  to = "/position_cmd"/>
     </node>
+       
 
 </launch>

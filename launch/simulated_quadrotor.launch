@@ -1,0 +1,69 @@
+<launch>
+    <arg name = "odometry_path"/>
+    <arg name = "position_cmd_path"/>
+    <arg name = "initial_position" default = "[0.0, 0.0, 0.0]"/>
+    <arg name = "initial_pointed_to" default = "[0.0, 0.0, 0.0]"/>
+
+  <!-- Simulator -->
+  <node pkg="so3_quadrotor_simulator"
+        type="quadrotor_simulator_so3"
+        name="simulated_quadrotor"
+        output="screen">
+   
+    <param name="rate/odom" value="100.0"/>
+    <rosparam param = "initial_position" subst_value = "True">$(arg initial_position)</rosparam>
+    <rosparam param = "initial_pointed_to" subst_value = "True">$(arg initial_pointed_to)</rosparam>
+
+     <!-- subscribed topic -->
+    <remap from = "~cmd"                 to = "controller/so3_cmd"/>
+    <remap from = "~force_disturbance"   to = "disturbance_generator/force_disturbance"/>
+    <remap from = "~momoent_disturbance" to = "disturbance_generator/moment_disturbance"/>
+    
+    <!-- advertised topic --> 
+    <remap from = "~odom"                to = "~odometry"/>
+  </node>
+
+   
+  <!-- Controller -->  
+  <node pkg="nodelet"
+    type="nodelet"
+    args="standalone so3_control/SO3ControlNodelet"
+    name="controller"
+    required="true"
+    output="screen">
+
+    <rosparam file="$(find so3_control)/config/gains_hummingbird.yaml"/>
+    <rosparam file="$(find so3_control)/config/corrections_hummingbird.yaml"/>
+
+    <param name="mass" value="0.74"/>
+    <param name="use_angle_corrections " value="false"/>
+    <param name="use_external_yaw "      value="false"/>
+    <param name="gains/rot/z" value="1.0"/>    
+    <param name="gains/ang/z" value="0.1"/>        
+
+   <!-- subscribed topic -->
+    <remap from = "~odom"           to = "$(arg odometry_path)"/>
+    <remap from = "~position_cmd"   to = "$(arg position_cmd_path)"/>
+
+    <!-- advertised topic --> 
+    <remap from = "~motors"         to = "~motors"/>
+    <remap from = "~corrections"    to = "disturbance_generator/corrections"/>
+    <remap from = "~so3_cmd"        to = "~so3_cmd"/>
+  </node>  
+  
+ 
+  <node pkg="so3_disturbance_generator"
+        type="so3_disturbance_generator"       
+        name="disturbance_generator"
+        output="screen">
+
+     <!-- subscribed topic -->
+    <remap from = "~odom"                                     to = "simulated_quadrotor/odometry"/>       <!-- Ground Truth & Fake VSLAM Odom -->
+
+    <!-- advertised topic --> 
+    <remap from = "~noisy_odom"          to = "$(arg odometry_path)"/>          <!-- Fake VINS Odom                 -->
+    <remap from = "~correction"          to = "~correction"/>  <!-- Fake VSLAM Correction          -->   
+    <remap from = "~force_disturbance"   to = "~force_disturbance"/>        
+    <remap from = "~moment_disturbance"  to = "~moment_disturbance"/>  
+  </node>
+</launch>
