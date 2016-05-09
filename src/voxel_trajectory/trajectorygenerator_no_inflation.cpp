@@ -32,31 +32,31 @@
 #include "engine.h"
 #endif
 
-typedef Eigen::SparseMatrix<double> SMatrixXd;
-
-const static int N = _TOT_BDY;
-const static int R = _TOT_DIM;
-const static double _EPS  = 1e-7;
-const static int _N_LOOP   = 10;
-const static int _DER_MIN  =   3;
-const static bool _CHECK_EX   = true;
-const static double _MARGIN_EX = 0.02;
-const static double _SAFE_RATE  = 0.05;
-const static double _PLAN_RATE  = 1.0;
-const static double _LIM_RATE   = 1.0;
-const static double _BEG_FIN_RELAX_RATE = 1.5;
-static int M;
-
-const static int _BUFF_SIZE = 256;
-static char buffer[_BUFF_SIZE] = "\0";
-
-static double max_vel = 1.0, max_acc = 1.0;
-static double f_vel = 1.0, f_acc = 1.0;
-vector<double> _qp_cost;
-    
 namespace VoxelTrajectory
 {
 
+    typedef Eigen::SparseMatrix<double> SMatrixXd;
+
+    const static int N = _TOT_BDY;
+    const static int R = _TOT_DIM;
+    const static double _EPS  = 1e-7;
+    const static int _N_LOOP   = 10;
+    const static int _DER_MIN  =   3;
+    const static bool _CHECK_EX   = true;
+    const static double _MARGIN_EX = 0.02;
+    const static double _SAFE_RATE  = 0.05;
+    const static double _PLAN_RATE  = 1.0;
+    const static double _LIM_RATE   = 1.0;
+    const static double _BEG_FIN_RELAX_RATE = 1.5;
+    static int M;
+
+    const static int _BUFF_SIZE = 256;
+    static char buffer[_BUFF_SIZE] = "\0";
+
+    static double max_vel = 1.0, max_acc = 1.0;
+    static double f_vel = 1.0, f_acc = 1.0;
+    vector<double> _qp_cost;
+        
     using namespace Eigen;
     using namespace std;
 

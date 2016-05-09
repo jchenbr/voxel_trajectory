@@ -267,9 +267,10 @@ namespace VoxelTrajectory
         clog << bdy[0] << ", " << bdy[1] << ", " << bdy[2] << ", ";
         clog << bdy[3] << ", " << bdy[4] << ", " << bdy[5] << endl;
     }
-
+    //static int n_vis = 0;
     void OctoMap::insertBlock(const double bdy[_TOT_BDY], int rt)
     {
+        //n_vis += 1;
         if (rt == _NODE_NULL) return;
         //clog << "inserting : " ; printBlock(bdy);
         //clog << " to :" ; printBlock(node[rt].bdy);
@@ -306,7 +307,9 @@ namespace VoxelTrajectory
                 blk[idx + _BDY_z], blk[idx + _BDY_Z]
             };
             //clog << "Inserting Block ..." << endl;
+            //n_vis = 0;
             insertBlock(bdy, _NODE_ROOT);
+            //clog << "#visited = " << n_vis << endl;
         }
 
         //clog << "going to deal with log." << endl;
