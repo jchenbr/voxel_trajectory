@@ -94,13 +94,11 @@ public:
         void setPathResolution(double res)
         {
             path_resolution = res;
-            clog << "set path resolution " << res << endl;
         }
 
         void setDislikeMargin(double margin)
         {
             dislike_margin = margin;
-            clog << "set dislike margin " << margin << endl;
         }
         
         void initMap()
@@ -108,18 +106,18 @@ public:
 #if _use_voxel_map_
             //ROS_WARN("[VoxelServer] starting initialization.");
             if (_map != NULL) delete _map;
-            //resolution = 0.6;
+
             voxel_map::VoxelMapConfiguration map_config(resolution, log_odd[0], 
                     log_odd[0], log_odd[1], log_odd[2], log_odd[3], log_odd[4],
                     voxel_map::Box{bdy}, ob_radius);
-            clog << "dislike = " << dislike_margin << ", path resolution = " << path_resolution << endl;
+
             voxel_map::VoxelPathConfiguration path_config(path_resolution,
-                    margin, dislike_margin, 10, [](const voxel_map::Box & box){return box.lower(2) >= 0.0;});
+                    margin, dislike_margin, 10, [](const voxel_map::Box & box){return box.lower(2) >= 0.0;}, 5.0);
+            
             _map = new voxel_map::VoxelMap(map_config, path_config);
             //ROS_WARN("[VoxelServer] finished initialization.");
 #else
             delete voxel_map;
-            resolution = 0.008;
             voxel_map = new VoxelTrajectory::OctoMap(bdy, resolution);
 #endif
         }
@@ -137,11 +135,7 @@ public:
             boxes.reserve(blk.size() / _TOT_BDY);
 
             for (size_t idx = 0; idx < blk.size(); idx += _TOT_BDY)
-            {
                 boxes.emplace_back(blk.data() + idx);
-                //boxes.emplace_back(voxel_map::Box(blk.data() + idx).inflate(0.1));
-                //ROS_WARN_STREAM("Box : " << boxes.back().lower.transpose() << ", " << boxes.back().upper.transpose());
-            }             
 
             _map->obBoxes(boxes);
             //ROS_WARN("[VoxelServer] a");
@@ -161,12 +155,17 @@ public:
             if (_map == NULL) initMap();
             _map->obRays(rays);
         }
+        
         void addBoxes(const vector<voxel_map::Box> boxes)
         {
-            // ROS_WARN_STREAM("[VoxelServer] add #" << boxes.size() << "." );
             if (_map == NULL) initMap();
             _map->obBoxes(boxes);
-            // ROS_WARN_STREAM("[VoxelServer] done boxes.");
+        }
+        
+        void addPoints(const vector<voxel_map::Point> pts)
+        {
+            if (_map == NULL) initMap();
+            _map->obPoints(pts);
         }
 #endif
 
@@ -261,7 +260,7 @@ public:
             return false;
         }
 
-	    bool isVaild3DPoint(double x, double y, double z)
+	    bool isValid3DPoint(double x, double y, double z)
         {
 #if _use_voxel_map_
             //ROS_WARN("[VoxelServer] F");
@@ -273,373 +272,6 @@ public:
             double pt[_TOT_DIM]  {x, y, z};
             return !voxel_map->testObstacle(pt);
 #endif
-        }
-
-        MatrixXd getInflatedPath(const MatrixXd & path)
-        {
-                int m = path.rows() >> 1;
-                MatrixXd inflated_path = path.block(1, 0, m, path.cols());
-#if 1
-                auto within = [&](double pt[_TOT_DIM], double bdy[_TOT_BDY])
-                {
-                    //for (int i = 0; i < _TOT_DIM; i++) clog << pt[i] << " "; clog << endl;
-                    //for (int i = 0; i < _TOT_BDY; i++) clog << bdy[i] << " "; clog << endl;
-                    for (int dim = 0; dim < _TOT_BDY; ++dim)
-                    {
-                        if (abs(pt[dim >> 1] - bdy[dim]) < _eps) return dim;
-                    }
-                    //clog << "[VOXEL_SERVER] can't find the neighbor direction." << endl;
-                    return 0;
-                    //clog << "!" << endl;
-                };
-
-                for (int iRow = 0; iRow < m; ++iRow)
-                {
-                    int direction[_TOT_BDY] = {-1, 1, -1, 1, -1, 1};
-                    int neighbor[_TOT_BDY] = {0, 0, 0, 0, 0, 0};
-
-                    // original grid
-                    double bdy[_TOT_BDY] = 
-                    {
-                        inflated_path(iRow, _BDY_x), inflated_path(iRow, _BDY_X),
-                        inflated_path(iRow, _BDY_y), inflated_path(iRow, _BDY_Y),
-                        inflated_path(iRow, _BDY_z), inflated_path(iRow, _BDY_Z)
-                    };
-
-
-                    //clog << "[VOXEL_SERVER] iRow = " << iRow << endl; 
-                    if (m > 1)
-                    {
-                        if (iRow == 0)
-                        {
-                            double pt[_TOT_DIM] =  
-                            {
-                                (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
-                                (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
-                                (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
-                            };
-                            //clog << " ? " << endl;
-                            neighbor[within(pt, bdy)] = 1;
-                        }
-                        else if (iRow + 1 == m)
-                        {
-                            double pt[_TOT_DIM] = 
-                            {
-                                (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
-                                (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
-                                (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5
-                            };
-                            neighbor[within(pt, bdy)] = 1;
-                        }
-                        else
-                        {
-                            double pt[_TOT_DIM + _TOT_DIM] = 
-                            {
-                                (path(m + iRow, _BDY_x) + path(m + iRow, _BDY_X)) * 0.5,
-                                (path(m + iRow, _BDY_y) + path(m + iRow, _BDY_Y)) * 0.5,
-                                (path(m + iRow, _BDY_z) + path(m + iRow, _BDY_Z)) * 0.5,
-
-                                (path(m + iRow + 1, _BDY_x) + path(m + iRow + 1, _BDY_X)) * 0.5,
-                                (path(m + iRow + 1, _BDY_y) + path(m + iRow + 1, _BDY_Y)) * 0.5,
-                                (path(m + iRow + 1, _BDY_z) + path(m + iRow + 1, _BDY_Z)) * 0.5
-                            };
-                            neighbor[within(pt, bdy)] = 1;
-                            neighbor[within(pt + _TOT_DIM, bdy)] = 1;
-                        }
-                    }
-
-                    //clog << "[VOXEL_SERVER] preparation done." << endl;
-                    // #1. inflate towards all direction inflation;
-#if _use_voxel_map_
-                    //ROS_WARN("[VoxelServer] J");
-                    auto inflateBoundary = [&](double bdy[_TOT_BDY], int dir[_TOT_BDY], int lim = -1)->void
-                    {
-#if 0
-                       auto box = _map->getMapBoundary(); 
-                       auto res = _map->getResolution();
-                       Eigen::Vector3d atom = box.upper - box.lower;
-                       int max_lim = 1;
-                       while (atom[_DIM_x] > res) atom *= 0.5, max_lim <<= 1;
-#else
-                       auto box = _map->getMapBoundary();
-                       auto atom = _map->getAtom();
-                       int max_lim = box.upper(0) - box.lower(0) / atom(0);
-#endif
-
-                       int l = 0, r = (lim >= 0) ? lim : max_lim, mid;
-                       voxel_map::Box _bdy = voxel_map::getBoxFromArray(bdy);
-                       voxel_map::Box _tmp;
-
-                       while (l < r)
-                       {
-                           mid = (l + r + 1) >> 1;
-
-                           _tmp.lower <<
-                               _bdy.lower[_DIM_x] + atom[_DIM_x] * dir[_BDY_x] * mid,
-                               _bdy.lower[_DIM_y] + atom[_DIM_y] * dir[_BDY_y] * mid,
-                               _bdy.lower[_DIM_z] + atom[_DIM_z] * dir[_BDY_z] * mid;
-
-                           _tmp.upper <<
-                               _bdy.upper[_DIM_x] + atom[_DIM_x] * dir[_BDY_X] * mid,
-                               _bdy.upper[_DIM_y] + atom[_DIM_y] * dir[_BDY_Y] * mid,
-                               _bdy.upper[_DIM_z] + atom[_DIM_z] * dir[_BDY_Z] * mid;
-
-                           if (_map->isBoxDislike(_tmp))
-                               r = mid - 1;
-                           else
-                               l = mid;
-                       }
-                       bdy[_BDY_x] += atom[_DIM_x] * dir[_BDY_x] * l;
-                       bdy[_BDY_y] += atom[_DIM_y] * dir[_BDY_y] * l;
-                       bdy[_BDY_z] += atom[_DIM_z] * dir[_BDY_z] * l;
-              
-                       bdy[_BDY_X] += atom[_DIM_x] * dir[_BDY_X] * l;
-                       bdy[_BDY_Y] += atom[_DIM_y] * dir[_BDY_Y] * l;
-                       bdy[_BDY_Z] += atom[_DIM_z] * dir[_BDY_Z] * l;
-                    };
-
-                    inflateBoundary(bdy, direction);
-                    //ROS_WARN("[VoxelServer] j");
-#else
-                    voxel_map->inflateBdy(bdy, direction);
-#endif
-                    //clog << "[VOXEL_SERVER] all direction inflation done." << endl;
-
-                    // #2. inflate towards labours;
-                    
-                    for (int dim = 0; dim < _TOT_BDY; ++dim)
-                    {
-                        neighbor[dim] *= direction[dim];
-                        //clog << neighbor[dim] << " ";
-                    }
-                    //clog << endl;
-
-#if _use_voxel_map_
-                //ROS_WARN("[VoxelServer] F");
-                    inflateBoundary(bdy, neighbor, 120);
-                //ROS_WARN("[VoxelServer] f");
-#else
-                    voxel_map->inflateBdy(bdy, neighbor, 120);
-#endif
-
-                    for (int dim = 0; dim < _TOT_BDY; ++dim)
-                        if (neighbor[dim] != 0)
-                        {
-                            neighbor[dim] = 0;
-#if _use_voxel_map_
-                            inflateBoundary(bdy, neighbor, 20);
-#else
-                            voxel_map->inflateBdy(bdy, neighbor, 20);
-#endif
-                            neighbor[dim] = (dim & 1) ? 1 : -1;
-                        }
-                    //clog << "[VOXEL_SERVER] neighbor inflation done." << endl;
-                    
-
-                    // #3. inflate towards one direction each time;
-                    for (int drc = 0; drc < _TOT_BDY; ++drc)
-                    {
-                        if (neighbor[drc] != 0) continue;
-                       // clog << "[!!] drc = " << drc << endl;
-                        memset(direction, 0, sizeof(direction));
-                        direction[drc] = (drc & 1) ? 1 : -1;
-#if _use_voxel_map_
-                        inflateBoundary(bdy, direction, 20); 
-#else
-                        voxel_map->inflateBdy(bdy, direction, 20);
-#endif
-                    }
-                    //clog << "[VOXEL_SERVER] one direction inflation done." << endl;
-                    //clog << "[VOXEL_SERVER] " << 
-                    //    bdy[_BDY_x] << ", " << bdy[_BDY_X] << ", " << 
-                    //    bdy[_BDY_y] << ", " << bdy[_BDY_Y] << ", " <<
-                    //    bdy[_BDY_z] << ", " << bdy[_BDY_Z] << endl; 
-
-                    //clog << "----------------------------------------" << endl;
-                    // store in the matrix
-                    inflated_path.row(iRow) << 
-                        bdy[_BDY_x], bdy[_BDY_X],
-                        bdy[_BDY_y], bdy[_BDY_Y],
-                        bdy[_BDY_z], bdy[_BDY_Z];
-                    //clog << "[VOXEL_SERVER]---------------------------------" << endl;
-
-                    // visualize it.
-                    //publishGrid(bdy, iRow);
-                }
-                //clog << "[VOXEL_SERVER] inflated Path : \n" << inflated_path << endl;
-#endif
-                return inflated_path;
-        }
-
-        int setWayPoints(
-                const vector<double> & p_s,
-                const vector<double> wp,
-                double init_T,
-                vector<double> & arr_time)
-        {
-            assert(p_s.size() == _TOT_DIM * 3);
-            assert(wp.size() % _TOT_DIM == 0);
-            addMapBlock(vector<double>(0));
-            
-            int ret = _TRAJ_SUCC, n = wp.size() / _TOT_DIM, m = 0;
-            
-#if _use_voxel_map_
-            //ROS_WARN("[VoxelServer] G");
-            MatrixXd edge, node;
-            {
-                vector<voxel_map::Point> pts {voxel_map::Point(p_s[0], p_s[1], p_s[2])};
-                for (size_t idx = 0; idx < wp.size(); idx += _TOT_DIM)
-                    pts.emplace_back(wp[idx + _DIM_x], wp[idx + _DIM_y], wp[idx + _DIM_z]);
-                voxel_map::Path::VoxelPath  path;
-                if (!_map->retPathByWaypoints(pts, path)) return ret = _TRAJ_NULL;
-
-                m = path.size();
-                assert(path.first.size() + 1 == m);
-                edge.resize(m + 1, _TOT_BDY);
-                node.resize(m, _TOT_BDY);
-
-
-                {
-                    auto pt = pts.front();
-                    edge.row(0) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
-                }
-                {
-                    auto pt = pts.back();
-                    edge.row(m) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
-                }
-                for (size_t idx = 0; idx + 1 < m; ++idx)
-                {
-                    auto box = path[idx].intersect(path[idx + 1]);
-                    edge.row(idx + 1) << 
-                        box.lower(_DIM_x), box.upper(_DIM_x),
-                        box.lower(_DIM_y), box.upper(_DIM_y),
-                        box.lower(_DIM_z), box.upper(_DIM_z);
-                }
-
-                for (size_t idx = 0; idx < m; ++idx)
-                {
-                    auto & box = path[idx];
-                    node.row(idx) << 
-                        box.lower(_DIM_x), box.upper(_DIM_x),
-                        box.lower(_DIM_y), box.upper(_DIM_y),
-                        box.lower(_DIM_z), box.upper(_DIM_z);
-                }
-            }
-            //ROS_WARN("[VoxelServer] g");
-#else
-
-            vector<MatrixXd> vec_edge; 
-            vector<MatrixXd> vec_node;
-            double p[2][_TOT_DIM] = {{p_s[0], p_s[1], p_s[2]}, {wp[0], wp[1], wp[2]}};
-
-            // #1. search for the path & inflation
-            for (int idx = 0; idx < n; ++idx)
-            {
-                p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
-                p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
-                p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
-                //ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
-
-                auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
-                if (edge_node.first.rows() == 0) 
-                {
-                    ROS_WARN("[VOXEL_SERVER] Can't find a path.");
-                    return -1;
-                }
-                vec_edge.push_back(edge_node.first);
-                vec_node.push_back(edge_node.second);
-                m += edge_node.second.cols();
-            }
-
-            MatrixXd edge(m + 1, _TOT_BDY), node(m, _TOT_BDY);
-
-            m = 0;
-            for (int idx = 0; idx < n; ++idx)
-            {
-                int c = vec_node[idx].cols();
-                edge.block(m, 0, c + 1, _TOT_BDY) << vec_edge[idx].transpose();
-                node.block(m, 0, c, _TOT_BDY) << vec_node[idx].transpose();
-                m += c;
-            }
-#endif
-            path.resize(m << 1, _TOT_BDY);
-            // set up the start and the final position
-            path.row(0) << p_s[_DIM_x], p_s[_DIM_y], p_s[_DIM_z], 
-                wp[(n - 1) * _TOT_DIM + _DIM_x], 
-                wp[(n - 1) * _TOT_DIM + _DIM_y], 
-                wp[(n - 1) * _TOT_DIM + _DIM_z]; 
-            // set up the box
-            path.block(1, 0, m, _TOT_BDY) << node;
-            // set up the window
-            path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
-            //clog << "[VOXEL_SERVER] PATH : \n" << path << endl;
-
-            inflated_path = getInflatedPath(path);
-
-            // #2. trajectory generation
-            MatrixXd Vel(_TOT_DIM, 2);
-            MatrixXd Acc(_TOT_DIM, 2);
-
-            Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
-            Vel.col(1) << 0.0, 0.0, 0.0;
-
-            Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
-            Acc.col(1) << 0.0, 0.0, 0.0;
-
-            VoxelTrajectory::TrajectoryGenerator traj_gen;
-            pair<MatrixXd, VectorXd> traj = 
-               traj_gen.genPolyCoeffTime(path, inflated_path, 
-                       Vel, Acc, max_vel, max_acc, 
-                       flight_vel, flight_acc, coeff_t);
-            //ROS_WARN_STREAM("[VOXEL_SERVER] Traj: \n" << traj.first);
-            qp_cost = traj_gen.qp_cost;
-
-
-            P   = traj.first;
-            T   = traj.second;
-
-            if (T(0) < 0) 
-            {
-                ROS_WARN_STREAM("[WARN] No Suitable Trajectory !");
-                return _TRAJ_NULL;
-            }
-
-            hasTraj = true;
-            
-            // record the important time
-            nTraj   = T.rows();
-
-            init_time = init_T;
-            final_time = init_T + T.sum();
-
-            arr_time.clear();
-            double tmp_time = init_time;
-            for (int iRow = m + 1; iRow < m + m; ++iRow)
-            {
-                tmp_time += T(iRow - m - 1);
-                if (path(iRow, _BDY_X) - path(iRow, _BDY_x) < _eps_pos &&
-                    path(iRow, _BDY_Y) - path(iRow, _BDY_y) < _eps_pos &&
-                    path(iRow, _BDY_Z) - path(iRow, _BDY_z) < _eps_pos)
-                {
-                    arr_time.push_back(tmp_time);
-                }
-            }
-            arr_time.push_back(final_time);
-
-            // #3. scaling rate
-            coeff_t = 1.0 / coeff_t;
-            vector<double> state = getDesiredState(init_time);
-            if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
-            coeff_t = 1.0;
-
-            //clog << "coeff t = " << coeff_t << endl;
-            //state = getDesiredState(final_time);
-            //clog << "state : \n";
-            //for (int i = 0; i < 9; i++) clog << state[i] << ", ";
-            //clog << endl;
-
-
-            return ret;
         }
 
         int setWayPointsRec(
@@ -656,7 +288,7 @@ public:
             int ret = _TRAJ_SUCC, n = wp.size() / _TOT_DIM, m = 0;
             
             ros::Time prv_time = ros::Time::now();
-#if _use_voxel_map_
+
             ROS_WARN("[VoxelServer] H");
             MatrixXd edge, node;
             {
@@ -668,7 +300,8 @@ public:
                 _map->setPathVoxelFilter([](const voxel_map::Box & box)
                         {
                             auto ctr = box.getCenter(); 
-                            return ctr(2) >= 0.0 && ctr(2) <= 5.0; 
+                            //return ctr(2) >= 0.0 && ctr(2) <= 5.0; 
+                            return ctr(2) >= 0.0; 
                         });
                 if (!_map->retPathByWaypoints(pts, path)) 
                 {
@@ -691,7 +324,8 @@ public:
                     edge.row(m) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
                     assert(path.back().contain(pts.back()));
                 }
-                for (size_t idx = 0; idx + 1 < m; ++idx)
+                
+                for (int idx = 0; idx + 1 < m; ++idx)
                 {
                     auto box = path[idx].intersect(path[idx + 1]);
                     edge.row(idx + 1) << 
@@ -700,7 +334,7 @@ public:
                         box.lower(_DIM_z), box.upper(_DIM_z);
                 }
 
-                for (size_t idx = 0; idx < m; ++idx)
+                for (int idx = 0; idx < m; ++idx)
                 {
                     auto & box = path[idx];
                     node.row(idx) << 
@@ -709,46 +343,21 @@ public:
                         box.lower(_DIM_z), box.upper(_DIM_z);
                 }
                 cost_time.push_back((ros::Time::now() - prv_time).toSec());
+
+                voxel_map::Path::VoxelPath _inflated_path;
+                _map->retInflatedPathAsLike(path, _inflated_path, 4.0);
+                inflated_path.resize(m, _TOT_BDY);
+                for (int idx = 0; idx < m; ++idx)
+                {
+                    auto & box = _inflated_path[idx];
+                    inflated_path.row(idx) <<
+                        box.lower(_DIM_x), box.upper(_DIM_x),
+                        box.lower(_DIM_y), box.upper(_DIM_y),
+                        box.lower(_DIM_z), box.upper(_DIM_z);
+                }
             }
             //ROS_WARN("[VoxelServer] h");
-#else
-            vector<MatrixXd> vec_edge; 
-            vector<MatrixXd> vec_node;
 
-            double p[2][_TOT_DIM] = {{p_s[0], p_s[1], p_s[2]}, {wp[0], wp[1], wp[2]}};
-
-            // #1. search for the path & inflation
-            prv_time = ros::Time::now();
-            for (int idx = 0; idx < n; ++idx)
-            {
-                p[~idx & 1][_DIM_x] = wp[idx * _TOT_DIM + _DIM_x];
-                p[~idx & 1][_DIM_y] = wp[idx * _TOT_DIM + _DIM_y];
-                p[~idx & 1][_DIM_z] = wp[idx * _TOT_DIM + _DIM_z];
-                //ROS_INFO("[VOXEL_SERVER] searching for the grid path.");
-                auto edge_node = voxel_map->getPath(p[idx & 1], p[~idx & 1]);
-                if (edge_node.first.rows() == 0) 
-                {
-                    ROS_WARN("[VOXEL_SERVER] Can't find a path.");
-                    return -1;
-                }
-                vec_edge.push_back(edge_node.first);
-                vec_node.push_back(edge_node.second);
-                m += edge_node.second.cols();
-            }
-
-            cost_time.push_back((ros::Time::now() - prv_time).toSec());
-
-            MatrixXd edge(m + 1, _TOT_BDY), node(m, _TOT_BDY);
-
-            m = 0;
-            for (int idx = 0; idx < n; ++idx)
-            {
-                int c = vec_node[idx].cols();
-                edge.block(m, 0, c + 1, _TOT_BDY) << vec_edge[idx].transpose();
-                node.block(m, 0, c, _TOT_BDY) << vec_node[idx].transpose();
-                m += c;
-            }
-#endif
             prv_time = ros::Time::now();
             path.resize(m << 1, _TOT_BDY);
             // set up the start and the final position
@@ -760,11 +369,8 @@ public:
             path.block(1, 0, m, _TOT_BDY) << node;
             // set up the window
             path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
-            //ROS_INFO_STREAM("[VOXEL_SERVER] Edge : \n" << edge << endl);
-            //ROS_INFO_STREAM("[VOXEL_SERVER] Node : \n" << node << endl);
-            //ROS_INFO_STREAM("[VOXEL_SERVER] PATH : \n" << path << endl);
 
-            inflated_path = getInflatedPath(path);
+            //inflated_path = getInflatedPath(path);
             //ROS_INFO_STREAM("[VOXEL_SERVER] INFLATED_PATH : \n" << inflated_path << endl);
             cost_time.push_back((ros::Time::now() - prv_time).toSec());
             prv_time = ros::Time::now();
@@ -823,153 +429,12 @@ public:
             arr_time.push_back(final_time);
 
             // #3. scaling rate
+#if 0
             coeff_t = 1.0 / coeff_t;
             vector<double> state = getDesiredState(init_time);
             if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
             coeff_t = 1.0;
-
-            //clog << "coeff t = " << coeff_t << endl;
-            //state = getDesiredState(final_time);
-            //clog << "state : \n";
-            //for (int i = 0; i < 9; i++) clog << state[i] << ", ";
-            //clog << endl;
-
-
-            return ret;
-        }
-
-        int setPoints(
-            const vector<double> & p_s,
-            const vector<double> & p_t,
-            double init_T,
-            vector<double> & arr_time)
-        {
-            assert(p_s.size() == _TOT_DIM * 3);
-            assert(p_t.size() == _TOT_DIM * 3);
-            int ret = _TRAJ_SUCC;
-            addMapBlock(vector<double>(0));
-
-            double p[2][3] = {{p_s[0], p_s[1], p_s[2]}, {p_t[0], p_t[1], p_t[2]}};
-
-            
-            VoxelTrajectory::TrajectoryGenerator traj_gen;
-            MatrixXd Vel (_TOT_DIM, 2);
-            MatrixXd Acc (_TOT_DIM, 2); 
-
-            do{
-#if _use_voxel_map_
-            //ROS_WARN("[VoxelServer] I");
-                MatrixXd edge;
-                MatrixXd node;
-                {
-                    voxel_map::Path::VoxelPath path;
-                    if (!_map->retPathBySrcDest(voxel_map::Point(p_s[0], p_s[1], p_s[2]),
-                                voxel_map::Point(p_t[0], p_t[1], p_t[2]), path)) return -1;
-
-                    int m = path.size();
-                    assert(path.first.size() + 1 == m);
-                    edge.resize(m + 1, _TOT_BDY);
-                    node.resize(m, _TOT_BDY);
-
-                    {
-                        voxel_map::Point pt(p_s[0], p_s[1], p_s[2]);
-                        edge.row(0) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
-                    }
-                    {
-                        voxel_map::Point pt(p_t[0], p_t[1], p_t[2]);
-                        edge.row(m) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
-                    }
-                    for (size_t idx = 0; idx + 1 < m; ++idx)
-                    {
-                        auto box = path[idx].intersect(path[idx + 1]);
-                        edge.row(idx + 1) << 
-                            box.lower(_DIM_x), box.upper(_DIM_x),
-                            box.lower(_DIM_y), box.upper(_DIM_y),
-                            box.lower(_DIM_z), box.upper(_DIM_z);
-                    }
-
-                    for (size_t idx = 0; idx < m; ++idx)
-                    {
-                        auto & box = path[idx];
-                        node.row(idx) << 
-                            box.lower(_DIM_x), box.upper(_DIM_x),
-                            box.lower(_DIM_y), box.upper(_DIM_y),
-                            box.lower(_DIM_z), box.upper(_DIM_z);
-                    }
-
-                }
-            //ROS_WARN("[VoxelServer] i");
-
-#else
-                // Here's some ugly construction due to the earlier version.
-                auto edge_node = voxel_map->getPath(p[0], p[1]);
-                auto & edge = edge_node.first;
-                auto & node = edge_node.second;
-                if (edge.rows() == 0)
-                {
-                    ROS_WARN("[TRAJ] Can't find a path.");
-                    return -1;
-                }
 #endif
-                
-                int m = node.cols();
-
-                if (m < 1)
-                {
-                    ROS_WARN_STREAM("[WRONG] ILLEGAL POINTS!");
-                    return _TRAJ_NULL;
-                }
-
-
-                path.resize(m << 1, _TOT_BDY);
-                // set up the start and the final position
-                path.row(0) << p_s[0], p_s[1], p_s[2], p_t[0], p_t[1], p_t[2];
-                // set up the box
-                path.block(1, 0, m, _TOT_BDY) << node.transpose();
-                // set up the window
-                path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.transpose().block(1, 0, m - 1, _TOT_BDY);
-
-                //ROS_INFO_STREAM( "[ PATH ]: \n" << path << endl );
-
-                // the matrix for inflation
-                inflated_path = getInflatedPath(path);
-                
-
-                Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
-                Vel.col(1) << p_t[3 + 0], p_t[3 + 1], p_t[3 + 2];
-
-                Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
-                Acc.col(1) << p_t[6 + 0], p_t[6 + 1], p_t[6 + 2];
-
-                // generate the trajectory
-                pair<MatrixXd, VectorXd> traj = 
-                   traj_gen.genPolyCoeffTime(path, inflated_path, 
-                       Vel, Acc, max_vel, max_acc,
-                       flight_vel, flight_acc, coeff_t);
-                qp_cost = traj_gen.qp_cost;
-
-                P   = traj.first;
-                T   = traj.second;
-
-                if (T(0) < 0) 
-                {
-                    ROS_WARN_STREAM("[WARN] No Suitable Trajectory !");
-                    return _TRAJ_NULL;
-                }
-            } while (T(0) < 0);
-
-            hasTraj = true;
-            
-            nTraj   = T.rows();
-
-            init_time = init_T;
-            final_time = init_T + T.sum();
-            arr_time.push_back(final_time);
-
-            // inflation rate
-            coeff_t = 1.0 / coeff_t;
-            vector<double> state = getDesiredState(init_time);
-            if ((abs(state[3])+ abs(state[4]) + abs(state[5])) > _eps_vel) coeff_t = 1.0; 
 
             return ret;
         }
@@ -983,8 +448,6 @@ public:
 
         vector<double> getDesiredState(double t_now)
         {
-            //clog<<"[t_now] = "<< t_now << ", [init_time] = " << init_time << ", "<< t_now - init_time<<endl;
-            //clog<<"[ T ]" << T.transpose() << endl;
             if (T.cols() == 0 || !hasTraj) return vector<double>(0); 
 
             t_now -= init_time;
@@ -1000,27 +463,28 @@ public:
             t_now = max(0.0, t_now);
             t_now = min(t_now, T[iSeg]);
 
-                    for (int dim = 0; dim < _TOT_DIM; ++dim)
-                    {
-                        VectorXd coeff = P.col(dim).segment(iSeg * nPoly, nPoly);
-                        //clog<<"[seg] = " << iSeg << ", [dim] = " << dim << ", " << coeff.transpose() <<endl; 
+            for (int dim = 0; dim < _TOT_DIM; ++dim)
+            {
+                VectorXd coeff = P.col(dim).segment(iSeg * nPoly, nPoly);
+                //clog<<"[seg] = " << iSeg << ", [dim] = " << dim << ", " << coeff.transpose() <<endl; 
+                
+                VectorXd t;
+
+                double scale_ratio = 1.0;
+                for (int i = 0; i < _TOT_DIM; ++i)
+                {
+                    t = VectorXd::Zero(nPoly);
+                    t(i) = 1.0;
+                    
+                    for (int j = i + 1; j < nPoly; ++j) t(j) = t(j-1) * t_now;
                         
-                        VectorXd t;
+                    ret[dim + i * 3] = scale_ratio * coeff.dot(t);
+                    scale_ratio *= coeff_t;
 
-                        double scale_ratio = 1.0;
-                        for (int i = 0; i < _TOT_DIM; ++i)
-                        {
-                            t = VectorXd::Zero(nPoly);
-                            t(i) = 1.0;
-                            
-                            for (int j = i + 1; j < nPoly; ++j) t(j) = t(j-1) * t_now;
-                                
-                            ret[dim + i * 3] = scale_ratio * coeff.dot(t);
-                            scale_ratio *= coeff_t;
+                    for (int j = 0; j < nPoly; ++j) coeff(j) *= (j-i);
+                }
+            }
 
-                            for (int j = 0; j < nPoly; ++j) coeff(j) *= (j-i);
-                        }
-                    }
             return ret;
         }
 

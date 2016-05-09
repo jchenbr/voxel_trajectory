@@ -9,6 +9,7 @@
 #include <cstring>
 
 using namespace std;
+using namespace VoxelTrajectory;
 
 class LimitedSensringTester
 {
