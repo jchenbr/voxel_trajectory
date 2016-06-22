@@ -35,4 +35,7 @@ max_velocity : 2.0
 max_acceleration : 2.0    
 flight_velocity : 1.5
 flight_acceleration : 4
-heuristic_ratio : 1.0
+path : 
+    heuristic_ratio : 1.0
+    allowed_ground : 0.0
+    allowed_top : 1.8
