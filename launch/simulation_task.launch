@@ -1,7 +1,7 @@
 <launch>
 
 
-    <group ns = "environment" clear_params = "true" if = "false">
+    <group ns = "environment" clear_params = "true">
         <node 
             pkg     = "tracking_trajectory"
             type    = "obstacle_generator_node"
@@ -47,43 +47,66 @@
             <remap from = "~obstacle_blocks" to = "obstacle_blocks"/>
         </node>
     </group>
-    
-    <!-- args    = " -r 1 /home/jchenbr/catkin_ws/bags/April-07-2016/2016-04-07-14-17-57.bag" -->
-    <!-- args    = " -r 1 /home/jchenbr/catkin_ws/bags/3d_laser/indoor_simple.bag" -->
-    <!-- args    = " -r 1 /home/jchenbr/catkin_ws/bags/3d_laser/outdoor_simple.bag" -->
-    <group ns = "environment" clear_params = "true" if = "true">
-        <node 
-            pkg     = "rosbag"
-            type    = "play"
-            name    = "laser_rosbag"
-            args    = " -r 1 -s 10 /home/jchenbr/catkin_ws/bags/3d_laser/indoor_simple.bag"
-            output  = "log">
-        </node>
-    </group>
 
-    <group ns = "target" clear_params = "true" if = "true">
-        
-        <!-- arg name = "odometry_path" value = "/aft_mapped_to_init"  -->
-        <!-- arg name = "odometry_path" value = "/ekf_node/ekf_odom"  -->
-        <include ns = "trajectory" file = "$(find voxel_trajectory)/launch/waypoints_trajectory_generator.launch">
-            <arg name = "waypoints_path" value = "/target/waypoints"/>
+    <group ns = "target" clear_params = "true">
+        <include ns = "quadrotor" file = "$(find voxel_trajectory)/launch/simulated_quadrotor.launch">
+            <arg name = "odometry_path" value = "/target/odometry"/>
             <arg name = "position_cmd_path" value = "/target/position_cmd"/>
-            <arg name = "odometry_path" value = "/ekf_node/ekf_odom" />
+            <arg name = "initial_position" value = "[0.0, 0.0, 0.0]"/>
+        </include>
+
+        <include ns = "trajectory" file = "$(find voxel_trajectory)/launch/task_trajectory_generator.launch">
+            <arg name = "waypoints_path" value = "/target/waypoints"/>
+            <arg name = "odometry_path" value = "/target/odometry"/>
+            <arg name = "position_cmd_path" value = "/target/position_cmd"/>
             <arg name = "obstacle_points_path" value = "/environment/obstacle_points"/>
             <arg name = "obstacle_blocks1_path" value = "/environment/obstacle_blocks1"/>
             <arg name = "obstacle_blocks2_path" value = "/environment/obstacle_blocks2"/>
             <arg name = "laser_scan_path" value = "/target/simulated_laser/scan"/>
-            <arg name = "laser_scan_3d_path" value = "/velodyne_points"/>
-            <arg name = "parameter_path"  value = "$(find voxel_trajectory)/config/test_3d_laser_config.yaml"/>
         </include>
-        
+     
+          <node
+            pkg = "tracking_trajectory"
+            type = "simulated_laser_naive_node"
+            name = "simulated_laser"
+            output = "screen">
+            <rosparam>
+                map :
+                    boundary :
+                        lower_x : -100.0
+                        upper_x : 100.0
+                        lower_y : -100.0
+                        upper_y : 100.0
+                        lower_z : 0.0
+                        upper_z : 200.0
+                limited_sensing :
+                    rate : 20
+                    angle :
+                        min : 0.0
+                        max : 6.28318530718
+                        count : 1000
+                    range :
+                        min : 0.1
+                        max : 10.0
+                        increment : 0.1
+            </rosparam>
+            
+            <!-- subscribed topics -->
+            <remap from = "~odometry" to = "/target/odometry"/>
+            <remap from = "~obstacle_points" to = "/environment/obstacle_points"/>
+            <remap from = "~obstacle_blocks" to = "/environment/obstacle_blocks"/>
+            
+            <!-- advertised topics -->
+            <remap from = "~scan" to = "~scan"/>
+        </node>
+
         <!-- Manual Waypoint Generator -->
         <node pkg = "waypoint_generator"
             name = "waypoint_generator"
             type = "waypoint_generator"       
             output = "screen">  
             <param name="~waypoint_type" value="manual"/>  
-            <remap from = "~odom" to = "/ekf_node/ekf_odom"/>        
+            <remap from = "~odom" to = "/target/odometry"/>        
             <remap from = "~goal" to = "/goal"/>
             <remap from = "~waypoints" to = "waypoints"/>
         </node>   
@@ -102,10 +125,9 @@
                     b : 0.0
                 covariance_scale : 100.0
             </rosparam>  
-            <remap from= "~odom" to = "/ekf_node/ekf_odom"/>
+            <remap from= "~odom" to = "odometry"/>
         </node>
     </group>
-
 
     <node 
         name = "rviz" 
@@ -113,6 +135,5 @@
         type = "rviz" 
         output = "screen"
         respawn = "true"
-        args="-d $(find voxel_trajectory)/config/visualization.rviz"/>     
-
+        args="-d $(find voxel_trajectory)/config/visualization.rviz"/>
 </launch>

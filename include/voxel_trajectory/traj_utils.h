@@ -135,7 +135,7 @@ namespace voxel_trajectory
         return true;
     }
 
-    bool retRaysFromCoud2Odom(const sensor_msgs::PointCloud2 & cloud2,
+    bool retRaysFromCloud2Odom(const sensor_msgs::PointCloud2 & cloud2,
             const nav_msgs::Odometry & odom, 
             vector<voxel_map::Ray> & rays,
             double height_thld = -1e30,

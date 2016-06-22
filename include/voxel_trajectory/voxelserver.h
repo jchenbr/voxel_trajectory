@@ -44,12 +44,15 @@ private:
         double bdy[_TOT_BDY];
         double coeff_t;
         double ob_radius;
+        double heu_ratio = 5.0;
         double log_odd[5] = {-2.0, 4.5, 0.0, 0.85, -0.4};
 
 #if _use_voxel_map_
         double dislike_margin;
         double path_resolution;
         voxel_map::VoxelMap * _map;
+
+        voxel_map::VoxelFilter _path_voxel_filter;
 #else
         VoxelTrajectory::OctoMap * voxel_map;
 #endif
@@ -80,6 +83,12 @@ public:
 
             bdy[0] = bdy[2] = bdy[4] = +_DB_INF;
             bdy[1] = bdy[3] = bdy[5] = -_DB_INF;
+
+            _path_voxel_filter = [](const voxel_map::Box & box)
+            {
+                auto ctr = box.getCenter();
+                return ctr(2) >= 0.0;
+            };
         }
 
         ~VoxelServer()
@@ -112,7 +121,7 @@ public:
                     voxel_map::Box{bdy}, ob_radius);
 
             voxel_map::VoxelPathConfiguration path_config(path_resolution,
-                    margin, dislike_margin, 10, [](const voxel_map::Box & box){return box.lower(2) >= 0.0;}, 5.0);
+                    margin, dislike_margin, 10, [](const voxel_map::Box & box){return box.lower(2) >= 0.0;}, heu_ratio);
             
             _map = new voxel_map::VoxelMap(map_config, path_config);
             //ROS_WARN("[VoxelServer] finished initialization.");
@@ -274,6 +283,14 @@ public:
 #endif
         }
 
+#if _use_voxel_map_
+        bool isValidBox(const voxel_map::Box & box)
+        {
+            if (_map == NULL) initMap();
+            return !_map->isBoxUnsafe(box);
+        }
+#endif
+
         int setWayPointsRec(
                 const vector<double> & p_s,
                 const vector<double> wp,
@@ -291,114 +308,126 @@ public:
 
             ROS_WARN("[VoxelServer] H");
             MatrixXd edge, node;
+            vector<int> seg_id;
             {
                 prv_time = ros::Time::now();
-                vector<voxel_map::Point> pts {voxel_map::Point(p_s[0], p_s[1], p_s[2])};
-                for (size_t idx = 0; idx < wp.size(); idx += _TOT_DIM)
-                    pts.emplace_back(wp[idx + _DIM_x], wp[idx + _DIM_y], wp[idx + _DIM_z]);
-                voxel_map::Path::VoxelPath  path;
-                _map->setPathVoxelFilter([](const voxel_map::Box & box)
+                vector<voxel_map::Box> voxels, windows;
+                { // search the voxel path
+                    _map->setPathVoxelFilter(_path_voxel_filter);
+
+                    for (size_t idx = 0; idx < wp.size(); idx += _TOT_DIM)
+                    {
+                        // set up
+                        auto src_pt = (idx) ? wp.begin() + (idx - _TOT_DIM) : p_s.begin();
+                        auto dest_pt = wp.begin() + idx;
+                        voxel_map::Point src(src_pt[_DIM_x], src_pt[_DIM_y], src_pt[_DIM_z]);
+                        voxel_map::Point dest(dest_pt[_DIM_x], dest_pt[_DIM_y], dest_pt[_DIM_z]);
+                        //ROS_WARN_STREAM("[VOXEL_SERVER] segment_id = " << idx / _TOT_DIM);
+                        //ROS_WARN_STREAM("[VOXEL_SERVER] src_pt = " << src.transpose());
+                        //ROS_WARN_STREAM("[VOXEL_SERVER] dest_pt = " << dest.transpose());
+
+                        // serach it
+                        voxel_map::Path::VoxelPath path;
+                        if (!_map->retPathBySrcDest(src, dest, path))
                         {
-                            auto ctr = box.getCenter(); 
-                            //return ctr(2) >= 0.0 && ctr(2) <= 5.0; 
-                            return ctr(2) >= 0.0; 
-                        });
-                if (!_map->retPathByWaypoints(pts, path)) 
-                {
-                    ROS_INFO_STREAM("[VOXEL_SERVER] No such PATH ." << endl);
-                    return ret = _TRAJ_NULL;
-                }
-                ROS_WARN_STREAM(" time for path search = " << (ros::Time::now() - prv_time).toSec());
+                            ROS_INFO_STREAM("[VOXEL_SERVER] No feasible path.");
+                            return ret = _TRAJ_NULL;
+                        }
 
-                m = path.size();
-                assert(path.first.size() + 1 == m);
-                edge.resize(m + 1, _TOT_BDY);
-                node.resize(m, _TOT_BDY);
+                        // collect result
+                        voxels.insert(voxels.end(), path.begin(), path.end());
 
-                {
-                    auto pt = pts.front();
-                    edge.row(0) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
-                }
-                {
-                    auto pt = pts.back();
-                    edge.row(m) << pt(0), pt(0), pt(1), pt(1), pt(2), pt(2);
-                    assert(path.back().contain(pts.back()));
-                }
-                
-                for (int idx = 0; idx + 1 < m; ++idx)
-                {
-                    auto box = path[idx].intersect(path[idx + 1]);
-                    edge.row(idx + 1) << 
-                        box.lower(_DIM_x), box.upper(_DIM_x),
-                        box.lower(_DIM_y), box.upper(_DIM_y),
-                        box.lower(_DIM_z), box.upper(_DIM_z);
-                }
+                        seg_id.push_back(voxels.size() - 1);
 
-                for (int idx = 0; idx < m; ++idx)
-                {
-                    auto & box = path[idx];
-                    node.row(idx) << 
-                        box.lower(_DIM_x), box.upper(_DIM_x),
-                        box.lower(_DIM_y), box.upper(_DIM_y),
-                        box.lower(_DIM_z), box.upper(_DIM_z);
+                        if (windows.empty()) windows.emplace_back(src, src);
+                        for (size_t ind = 0; ind + 1 < path.size(); ++ind) 
+                            windows.push_back(path[ind].intersect(path[ind + 1]));
+                        windows.emplace_back(dest, dest);
+                    }
+
+                    m = voxels.size();
+                    node.resize(m, _TOT_BDY);
+                    edge.resize(m + 1, _TOT_BDY);
+
+                    for (size_t ind = 0; ind < voxels.size(); ++ind)
+                    {
+                        node.row(ind) << 
+                            voxels[ind].lower(_DIM_x), voxels[ind].upper(_DIM_x),
+                            voxels[ind].lower(_DIM_y), voxels[ind].upper(_DIM_y),
+                            voxels[ind].lower(_DIM_z), voxels[ind].upper(_DIM_z);
+                    }                    
+
+                    for (size_t ind = 0; ind < windows.size(); ++ind)
+                    {
+                        edge.row(ind) << 
+                            windows[ind].lower(_DIM_x), windows[ind].upper(_DIM_x),
+                            windows[ind].lower(_DIM_y), windows[ind].upper(_DIM_y),
+                            windows[ind].lower(_DIM_z), windows[ind].upper(_DIM_z);
+                    }
                 }
+                ROS_WARN_STREAM("[VOXEL_SERVER] time for path search = " 
+                        << (ros::Time::now() - prv_time).toSec());
                 cost_time.push_back((ros::Time::now() - prv_time).toSec());
 
-                voxel_map::Path::VoxelPath _inflated_path;
-                _map->retInflatedPathAsLike(path, _inflated_path, 4.0);
-                inflated_path.resize(m, _TOT_BDY);
-                for (int idx = 0; idx < m; ++idx)
-                {
-                    auto & box = _inflated_path[idx];
-                    inflated_path.row(idx) <<
-                        box.lower(_DIM_x), box.upper(_DIM_x),
-                        box.lower(_DIM_y), box.upper(_DIM_y),
-                        box.lower(_DIM_z), box.upper(_DIM_z);
+                prv_time = ros::Time::now();
+                { // inflate the voxels of the path
+                    voxel_map::Path::VoxelPath _inflated_path;
+                    _map->retInflatedPathAsLike(voxels, _inflated_path, 4.0);
+                    inflated_path.resize(m, _TOT_BDY);
+                    for (int idx = 0; idx < m; ++idx)
+                    {
+                        auto & box = _inflated_path[idx];
+                        inflated_path.row(idx) <<
+                            box.lower(_DIM_x), box.upper(_DIM_x),
+                            box.lower(_DIM_y), box.upper(_DIM_y),
+                            box.lower(_DIM_z), box.upper(_DIM_z);
+                    }
                 }
+                ROS_WARN_STREAM("[VOXEL_SERVER] time for inflation = " 
+                        << (ros::Time::now() - prv_time).toSec());
+                cost_time.push_back((ros::Time::now() - prv_time).toSec());
             }
-            //ROS_WARN("[VoxelServer] h");
 
-            prv_time = ros::Time::now();
-            path.resize(m << 1, _TOT_BDY);
-            // set up the start and the final position
-            path.row(0) << p_s[_DIM_x], p_s[_DIM_y], p_s[_DIM_z], 
-                wp[(n - 1) * _TOT_DIM + _DIM_x], 
-                wp[(n - 1) * _TOT_DIM + _DIM_y], 
-                wp[(n - 1) * _TOT_DIM + _DIM_z]; 
-            // set up the box
-            path.block(1, 0, m, _TOT_BDY) << node;
-            // set up the window
-            path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
+            { // record and formating
+                path.resize(m << 1, _TOT_BDY);
+                // set up the start and the final position
+                path.row(0) << p_s[_DIM_x], p_s[_DIM_y], p_s[_DIM_z], 
+                    wp[(n - 1) * _TOT_DIM + _DIM_x], 
+                    wp[(n - 1) * _TOT_DIM + _DIM_y], 
+                    wp[(n - 1) * _TOT_DIM + _DIM_z]; 
+                // set up the box
+                path.block(1, 0, m, _TOT_BDY) << node;
+                // set up the window
+                path.block(m + 1, 0, m - 1, _TOT_BDY) << edge.block(1, 0, m - 1, _TOT_BDY);
+            }
 
-            //inflated_path = getInflatedPath(path);
-            //ROS_INFO_STREAM("[VOXEL_SERVER] INFLATED_PATH : \n" << inflated_path << endl);
-            cost_time.push_back((ros::Time::now() - prv_time).toSec());
             prv_time = ros::Time::now();
 
             // #2. trajectory generation
-            MatrixXd Vel(_TOT_DIM, 2);
-            MatrixXd Acc(_TOT_DIM, 2);
+            { // call the api
+                MatrixXd Vel(_TOT_DIM, 2);
+                MatrixXd Acc(_TOT_DIM, 2);
 
-            Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
-            Vel.col(1) << 0.0, 0.0, 0.0;
+                Vel.col(0) << p_s[3 + 0], p_s[3 + 1], p_s[3 + 2];
+                Vel.col(1) << 0.0, 0.0, 0.0;
 
-            Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
-            Acc.col(1) << 0.0, 0.0, 0.0;
+                Acc.col(0) << p_s[6 + 0], p_s[6 + 1], p_s[6 + 2];
+                Acc.col(1) << 0.0, 0.0, 0.0;
 
-            VoxelTrajectory::TrajectoryGenerator traj_gen;
-            pair<MatrixXd, VectorXd> traj = 
-               traj_gen.genPolyCoeffTime(path, inflated_path, 
-                       Vel, Acc, max_vel, max_acc,
-                       flight_vel, flight_acc, coeff_t);
-
-
-            qp_cost = traj_gen.qp_cost;
-
+                VoxelTrajectory::TrajectoryGenerator traj_gen;
+                pair<MatrixXd, VectorXd> traj = 
+                   traj_gen.genPolyCoeffTime(path, inflated_path, 
+                           Vel, Acc, max_vel, max_acc,
+                           flight_vel, flight_acc, coeff_t);
+                qp_cost = traj_gen.qp_cost;
+                P   = traj.first;
+                T   = traj.second;
+            }
+            ROS_WARN_STREAM("[VOXEL_SERVER] time for traj generation = " 
+                    << (ros::Time::now() - prv_time).toSec());
             cost_time.push_back((ros::Time::now() - prv_time).toSec());
 
 
-            P   = traj.first;
-            T   = traj.second;
 
             if (T(0) < 0) 
             {
@@ -409,24 +438,26 @@ public:
             hasTraj = true;
             
             // record the important time
-            nTraj   = T.rows();
-
-            init_time = init_T;
-            final_time = init_T + T.sum();
-
-            arr_time.clear();
-            double tmp_time = init_time;
-            for (int iRow = m + 1; iRow < m + m; ++iRow)
             {
-                tmp_time += T(iRow - m - 1);
-                if (path(iRow, _BDY_X) - path(iRow, _BDY_x) < _eps_pos &&
-                    path(iRow, _BDY_Y) - path(iRow, _BDY_y) < _eps_pos &&
-                    path(iRow, _BDY_Z) - path(iRow, _BDY_z) < _eps_pos)
+                nTraj   = T.rows();
+
+                init_time = init_T;
+                final_time = init_T + T.sum();
+
+                arr_time.clear();
+                double tmp_time = init_time;
+                int sid = 0;
+                for (int iRow = m + 1; iRow < m + m; ++iRow)
                 {
-                    arr_time.push_back(tmp_time);
+                    tmp_time += T(iRow - m - 1);
+                    if (iRow - m - 1 == seg_id[sid])
+                    {
+                        arr_time.push_back(tmp_time);
+                        sid += 1;
+                    }
                 }
+                arr_time.push_back(final_time);
             }
-            arr_time.push_back(final_time);
 
             // #3. scaling rate
 #if 0
@@ -537,6 +568,9 @@ public:
         //> set margin on voxel
         void setMargin(double margin) 
         {this->margin = margin;}
+        
+        void setHeuristicRatio(double ratio)
+        {assert(ratio >= 1.0); this->heu_ratio = ratio;}
 
         //> set resolution on the map
         void setResolution(double resolution)
@@ -551,6 +585,9 @@ public:
 
         void setObservationRadius(double radius)
         {ob_radius = radius;}
+
+        void setPathVoxelFilter(const voxel_map::VoxelFilter & filter)
+        {_path_voxel_filter = filter;}
 
         const double * getBdy()
         {return bdy;}

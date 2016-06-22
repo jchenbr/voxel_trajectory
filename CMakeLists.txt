@@ -126,6 +126,7 @@ catkin_package(
 ## Your package locations should be listed before other locations
 
 include_directories(include)
+include_directories(thirdparty/octomap/octomap/include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
 )
@@ -167,6 +168,9 @@ add_executable(grid_trajectory_server_node src/grid_trajectory_server_node.cpp)
 
 add_executable(grid_trajectory_generator_node src/grid_trajectory_generator_node.cpp)
 
+add_executable(auto_trajectory_generator_node src/auto_trajectory_generator_node.cpp)
+
+add_executable(octomap_test_node src/octomap_test_node.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -285,6 +289,35 @@ target_link_libraries(grid_trajectory_generator_node
 
 target_link_libraries(grid_trajectory_server_node
     ${catkin_LIBRARIES}
+)
+
+
+target_link_libraries(auto_trajectory_generator_node 
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+
+    octomap_
+    trajectorygenerator_
+
+    ooqpgensparse
+    ooqpsparse
+    ooqpgondzio
+    ooqpbase
+    blas
+    ma27
+    gfortran
+    voxel_map
+)
+
+set(OCTOMAP_LIBRARIES 
+  "/home/jchenbr/catkin_ws/src/voxel_trajectory/thirdparty/octomap/lib/liboctomap.so"
+  "/home/jchenbr/catkin_ws/src/voxel_trajectory/thirdparty/octomap/lib/liboctomath.so"
+)
+
+target_link_libraries(octomap_test_node
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+    ${OCTOMAP_LIBRARIES}
 )
 
 #############

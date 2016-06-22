@@ -94,8 +94,30 @@ private:
     // _core server
     VoxelTrajectory::VoxelServer * _core = new VoxelTrajectory::VoxelServer();
 
-    enum State {taking_off, landing, on_ground, hovering, end_to_end};
+    enum State {taking_off, landing, on_ground, hovering, doing_task};
+    enum StateSignal {trigger, arrival, trajectory_failure};
+
     State _state = on_ground;
+    // for changing the states of quadrotor
+    inline void alterState(StateSignal signal_val);
+
+    inline bool isArrived();
+
+    // task action
+    void configOnGround();
+    void configTakingOff();
+    void configAssignTask();
+    void configLanding();
+    void configHovering();
+
+    // task param
+    double _arrival_thld = 0.1;
+    double _take_off_hgt = 1.3, _land_hgt = -0.1;
+    double _take_off_vel = 1.0, _land_vel = 1.0;
+    double _take_off_acc = 1.0, _land_acc = 1.0;
+    double _task_vel = 1.0, _task_acc = 1.0;
+    double _task_upper_hgt = 0.2, _task_lower_hgt = -0.3;
+    vector<double> _task_waypoints {4.0, 0.0, 1.3};
 
     const double _EPS = 1e-9;
     const double _EPS_POS = 1e-1;
@@ -112,6 +134,7 @@ private:
     ros::Subscriber _dest_pt_sub, _dest_pts_sub; 
     ros::Subscriber _laser_sub;
     ros::Subscriber _3d_laser_sub;
+    ros::Subscriber _trigger_sub;
 
     // publishers
     ros::Publisher _desired_state_pub;
@@ -150,7 +173,6 @@ private:
 
     // input messages
     nav_msgs::Odometry _odom;
-    nav_msgs::Odometry _last_dest;
     ros::Time _final_time = ros::TIME_MIN;
 
     // output messages
@@ -176,8 +198,6 @@ private:
     double _laser_scan_step = 0.2;
     double _laser_scan_resolution = 0.05;
     double _laser_radius = 1000.0;
-    bool _is_started = false;
-    ros::Time _start_time;
     
     double _ratio_init_z_velocity = 0.5;
 
@@ -197,11 +217,14 @@ public:
     void rcvGlobalBlocksCloud1(const sensor_msgs::PointCloud &);
     void rcvLaserScan(const sensor_msgs::LaserScan &);
     void rcv3DLaserScan(const sensor_msgs::PointCloud2 &);
+    void rcvTrigger(const geometry_msgs::PoseStamped &);
 
     // receive waypoints
     void rcvWaypoints(const nav_msgs::Path &);
 
     void initMap();
+    void genTrajectory();
+
     // check halfway obstacle
     void checkHalfWay();
 
@@ -252,6 +275,10 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
     // set destination
     _dest_pts_sub = 
         handle.subscribe("waypoints", 2, &TrajectoryGenerator::rcvWaypoints, this);
+
+    // trigger for executing the mission
+    _trigger_sub = 
+        handle.subscribe("trigger", 2, &TrajectoryGenerator::rcvTrigger, this);
 
     // publish desired state
     _traj_pub = 
@@ -315,21 +342,19 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
         _core->setMapBoundary(bdy);
     }
     {
-        double resolution, margin, max_vel, max_acc, f_vel, f_acc, heu_r;
+        double resolution, margin, max_vel, max_acc, f_vel, f_acc;
         handle.param("map/resolution", resolution, 0.4);
         handle.param("map/safe_margin", margin, 0.3);
         handle.param("max_velocity", max_vel, 1.0);
         handle.param("max_acceleration", max_acc, 1.0);
         handle.param("flight_velocity", f_vel, max_vel);
         handle.param("flight_acceleration", f_acc, max_acc);
-        handle.param("heuristic_ratio", heu_r, 5.0);
         _core->setResolution(resolution);
         _core->setMargin(margin);
         _core->setMaxVelocity(max_vel);
         _core->setMaxAcceleration(max_vel);
         _core->setFlightVelocity(f_vel);
         _core->setFlightAcceleration(f_acc);
-        _core->setHeuristicRatio(heu_r);
         _core->initMap();    
         double pos_gain[NUM_DIM] = {3.7, 3.7, 5.2};
         double vel_gain[NUM_DIM] = {2.4, 2.4, 3.0};
@@ -343,6 +368,32 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
         handle.param("setting/laser_scan_resolution", _laser_scan_resolution, 0.05);
         handle.param("setting/ratio_z_init_velocity", _ratio_init_z_velocity, 0.5);
     }
+    { // for task setting
+        handle.param("setting/take_off/height", _take_off_hgt, _take_off_hgt);
+        handle.param("setting/take_off/velocity", _take_off_vel, _take_off_vel);
+        handle.param("setting/take_off/acceleration", _take_off_acc, _take_off_acc);
+
+        handle.param("setting/land/height", _land_hgt, _land_hgt);
+        handle.param("setting/land/velocity", _land_vel, _land_vel);
+        handle.param("setting/land/acceleration", _land_acc, _land_acc);
+
+        handle.param("setting/task/lower_height", _task_lower_hgt, _task_lower_hgt);
+        handle.param("setting/task/upper_height", _task_upper_hgt, _task_upper_hgt);
+        handle.param("setting/task/velocity", _task_vel, _task_vel);
+        handle.param("setting/task/acceleration", _task_acc, _task_acc);
+
+        handle.param("setting/task/arrive_threshold", _arrival_thld, _arrival_thld);
+        int num_wps = 0;
+        handle.param("setting/task/waypoints/num", num_wps, num_wps);
+        _task_waypoints.clear();
+        for (int idx = 0; idx < num_wps; ++idx)
+        {
+            vector<double> wp;
+            handle.getParam("setting/task/waypoints/point_" + to_string(idx), wp);
+            assert(wp.size() == NUM_DIM);
+            _task_waypoints.insert(_task_waypoints.end(), wp.begin(), wp.end());
+        }
+    } 
 
     double map_duration;
     handle.param("map/map_duration", map_duration, 2.0);
@@ -374,6 +425,13 @@ void TrajectoryGenerator::rcvOdometry(const nav_msgs::Odometry & odom)
     _has_odom = true;
     _odom_queue.push_back(odom);
     while (_odom_queue.size() > _odom_queue_size) _odom_queue.pop_front();
+
+    if (isArrived()) alterState(arrival);
+}
+
+void TrajectoryGenerator::rcvTrigger(const geometry_msgs::PoseStamped &)
+{
+    alterState(trigger);
 }
 
 void TrajectoryGenerator::checkHalfWay()
@@ -390,7 +448,7 @@ void TrajectoryGenerator::checkHalfWay()
             {
                 if (_odom.header.stamp.toSec() < _arr_time[valid_id]) break;
             }
-#if 1
+#if 0
             ROS_WARN_STREAM("current segment id = " << valid_id);
             ROS_WARN_STREAM("current time = " << _odom.header.stamp.toSec());
             for (size_t ind = 0; ind < _arr_time.size(); ++ind)
@@ -481,7 +539,6 @@ void TrajectoryGenerator::initMap()
 
 void TrajectoryGenerator::rcv3DLaserScan(const sensor_msgs::PointCloud2 & cloud)
 {
-    if (!_is_started) _is_started = true, _start_time = cloud.header.stamp; 
     if (_odom_queue.empty()) return ;
     if (cloud.header.stamp - _last_scan_stamp < ros::Duration(_laser_scan_step)) return ;
     _last_scan_stamp = cloud.header.stamp;
@@ -501,16 +558,19 @@ void TrajectoryGenerator::rcv3DLaserScan(const sensor_msgs::PointCloud2 & cloud)
     if (!retRaysFromCloud2Odom(cloud, laser_odom, rays, 
                 _allowed_ground_height,
                 _laser_scan_resolution, 1)) return;
-
-    ros::Time pre_time = ros::Time::now();
     _core->addRays(rays);
-    //ROS_WARN_STREAM("Inserted " << rays.size() << " laser rays in " << ros::Time::now() - pre_time << "s.");
-    stringstream sin;
-    sin << (cloud.header.stamp - _start_time) << " \t" << (ros::Time::now() - pre_time);
-    std_msgs::String msg;
-    msg.data = sin.str();
-    _debug_pub.publish(msg);
 
+    vector<voxel_map::Box> boxes;
+    for (auto & ray: rays)
+    {
+        if (ray.target()(2) <= _allowed_ground_height) continue;
+        if (ray.length() > _laser_radius) continue;
+        voxel_map::Box box(ray.target(), ray.target());
+        box.lower(2) -= _extra_obstacle_height;
+        box.upper(2) += _extra_obstacle_height;
+        boxes.push_back(box);
+    }
+    _core->addBoxes(boxes);
     checkHalfWay();
 }
 
@@ -552,12 +612,29 @@ void TrajectoryGenerator::rcvLaserScan(const sensor_msgs::LaserScan & scan)
 
 void TrajectoryGenerator::rcvWaypoints(const nav_msgs::Path & wp)
 {
-    ROS_WARN("rcv waypoints");
-    if (!_has_odom) return ;
+    if (_state != doing_task) return ;
 
+    _waypoints.clear();
+    _waypoints.reserve(wp.poses.size() * NUM_DIM);
+
+    for (auto & pose: wp.poses) 
+    {
+        _waypoints.push_back(pose.pose.position.x);
+        _waypoints.push_back(pose.pose.position.y);
+        _waypoints.push_back(pose.pose.position.z);
+    }
+    genTrajectory();
+}
+
+void TrajectoryGenerator::genTrajectory()
+{
+    // to do
+    ROS_WARN("rcv waypoints");
+    if (!_has_odom || _waypoints.empty()) return ;
+    
+    // choose a kernel, 
     VoxelTrajectory::VoxelServer * p_core = _core;
 
-    _pos_cmd.trajectory_id = ++_traj_id;
 
     vector<double> state = 
     {
@@ -570,47 +647,44 @@ void TrajectoryGenerator::rcvWaypoints(const nav_msgs::Path & wp)
         0.0, 0.0, 0.0
     };
 
-    _waypoints.clear();
-    _waypoints.reserve(wp.poses.size() * NUM_DIM);
-
-    for (auto & pose: wp.poses) 
-    {
-        _waypoints.push_back(pose.pose.position.x);
-        _waypoints.push_back(pose.pose.position.y);
-        _waypoints.push_back(pose.pose.position.z);
-    }
-
     ROS_INFO("[GENERATOR] Generating the trajectory.");
 
     vector<double> cost_time;
     if (p_core->setWayPointsRec(state, _waypoints, _odom.header.stamp.toSec(), 
                 _arr_time, cost_time) != 2)
-    {
+    { // fail to generate trajectory
         _arr_time.clear();
+        // illegal _waypoints
         _waypoints.clear();
         ROS_INFO("[GENERATOR] Generating the trajectory failed!");
-        _last_dest.pose.pose = _odom.pose.pose;
         _final_time = ros::TIME_MIN;
 
         _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_WARN_IMPOSSIBLE;
         _traj_pub.publish(_traj);
         _has_traj = false;
+
+        alterState(trajectory_failure);
     }
     else
-    {
+    { // trajectory generation succeed.
         ROS_INFO("[GENERATOR] Generating the trajectory succeed!");
-        _last_dest.pose.pose = _odom.pose.pose;
-        _last_dest.pose.pose.position = wp.poses.back().pose.position;
+
+        _traj_id += 1;
         _final_time = ros::Time(p_core->getFinalTime());
 
         _traj = p_core->getTraj();
-        _traj.start_yaw = tf::getYaw(_odom.pose.pose.orientation);
-        _traj.final_yaw = tf::getYaw(wp.poses.back().pose.orientation);
+#if 1
+        { // fix yaw
+            _traj.start_yaw = tf::getYaw(_odom.pose.pose.orientation);
+            _traj.final_yaw = tf::getYaw(_odom.pose.pose.orientation);
 
-        if (abs( (_traj.start_yaw + 2 * _PI) - _traj.final_yaw) < _PI)
-            _traj.start_yaw += 2 * _PI;
-        if (abs( (_traj.start_yaw - 2 * _PI) - _traj.final_yaw) < _PI)
-            _traj.start_yaw -= 2 * _PI;
+            { // in case of assigning yaw, make absolute of yaw difference less than Pi
+                double d_yaw = fmod(_traj.final_yaw - _traj.start_yaw, 2 * _PI);
+                if (d_yaw < -_PI) d_yaw += 2 * _PI;
+                if (d_yaw > +_PI) d_yaw -= 2 * _PI;
+            }
+        }
+#endif
 
         _traj.header.frame_id = "/map";
         _traj.trajectory_id = _traj_id;
@@ -837,13 +911,6 @@ void TrajectoryGenerator::visInflatedPath()
         mk.scale.x = path(idx, RX) - path(idx, LX);
         mk.scale.y = path(idx, RY) - path(idx, LY);
         mk.scale.z = path(idx, RZ) - path(idx, LZ);
-        
-        mk.pose.position.z = 0.01;
-        mk.scale.z = 0.01;
-        mk.color.a = 0.5;
-        mk.color.r = 1.0;
-        mk.color.g = 1.0;
-        mk.color.b = 1.0;
 
         _inflated_path_vis.markers.push_back(mk);
     }
@@ -873,7 +940,7 @@ void TrajectoryGenerator::visCheckpoint()
     {
         field.name = f_name[idx];
         field.offset = idx * 4;
-        field.datatype = 7;
+        field.datatype = 7;;
         field.count = 1;
         _check_point_vis.fields[idx] =field;
     }
@@ -901,7 +968,7 @@ void TrajectoryGenerator::visWindowCenter()
     win_ctr.header.stamp = _odom.header.stamp;
     pose.header = win_ctr.header;
     win_ctr.poses.clear();
-    win_ctr.poses.reserve(m);
+    win_ctr.poses.reserve(m);;
     
     for (int idx = m + 1; idx < (m + m); ++ idx)
     {
@@ -919,3 +986,201 @@ void TrajectoryGenerator::visWindowCenter()
     _win_ctr_vis_pub.publish(win_ctr);
 }
 
+inline bool TrajectoryGenerator::isArrived()
+{
+    if (!_arr_time.empty() && _odom.header.stamp > _final_time)
+    {
+        Eigen::Vector3d pos, dest;
+        pos << 
+            _odom.pose.pose.position.x,
+            _odom.pose.pose.position.y,
+            _odom.pose.pose.position.z;
+        dest << 
+            _waypoints[_waypoints.size() - NUM_DIM + X], 
+            _waypoints[_waypoints.size() - NUM_DIM + Y], 
+            _waypoints[_waypoints.size() - NUM_DIM + Z]; 
+
+        bool ret = (pos-dest).norm() < _arrival_thld;
+
+        if (ret)
+        {
+            _waypoints.clear();
+            _arr_time.clear();
+            _final_time = ros::TIME_MIN;
+            ROS_WARN("[GENERATOR] arrive the goal position");
+        }
+        
+        return ret;
+    }
+    return false;
+}
+
+inline void TrajectoryGenerator::alterState(StateSignal signal_val)
+{
+    if (signal_val == trigger && _state == on_ground)
+    {
+        _state = taking_off;
+        // take_off
+        configTakingOff();
+    }
+    else if (signal_val == arrival && _state == taking_off)
+    {
+        _state = doing_task;
+        // assign task
+        configAssignTask();
+    }
+    else if (signal_val == arrival && _state == doing_task)
+    {
+        _state = landing;
+        // land
+        configLanding();
+    }
+    else if (signal_val == arrival && _state == landing)
+    {
+        _state = on_ground;
+        // finished
+        configOnGround();
+    }
+    else if (_state != hovering && signal_val == trajectory_failure)
+    {
+        _state = hovering;
+        ROS_WARN_STREAM("[GENERATOR] Task failed!");
+        // abort trajectory!
+        configHovering();
+    }
+    else if (_state != hovering)
+    {
+        ROS_WARN_STREAM("[GENERATOR] Unexpected Situation, state = " 
+                << _state << ", signal = " << signal_val);
+        _state = hovering;
+        // abort trajectory and hovering !
+        configHovering();
+    }   
+}
+
+void TrajectoryGenerator::configOnGround()
+{
+    _traj.header.stamp = _odom.header.stamp;
+    _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
+    _traj_pub.publish(_traj);
+}
+
+void TrajectoryGenerator::configTakingOff()
+{
+    ROS_WARN("[GENERATOR] configure taking off...");
+    _waypoints = vector<double> 
+    {
+        _odom.pose.pose.position.x, 
+        _odom.pose.pose.position.y,
+        _take_off_hgt
+    };
+
+    _core->setFlightVelocity(_take_off_vel);
+    _core->setFlightAcceleration(_take_off_acc);
+    {
+        // setting up the filter for search flight corridor
+        //  fix (x, y)
+        _core->setPathVoxelFilter(
+                [&](const voxel_map::Box & box) -> bool
+                {
+                    return
+                        box.contain(voxel_map::Point(
+                            _odom.pose.pose.position.x,
+                            _odom.pose.pose.position.y,
+                            box.lower(Z)
+                        ));
+                }
+        );
+    }
+    genTrajectory();
+}
+
+void TrajectoryGenerator::configAssignTask()
+{
+    ROS_WARN("[GENERATOR] configure task...");
+    _waypoints = _task_waypoints;
+    for (size_t idx = 0; idx < _waypoints.size(); idx += NUM_DIM)
+    {
+       _waypoints[idx + Z] = _odom.pose.pose.position.z; 
+    }
+
+    _core->setFlightVelocity(_task_vel);
+    _core->setFlightAcceleration(_task_acc);
+    {
+        // setting up the filter for search flight corridor
+        //  fix height (z)
+        //  no obstale within a specifed height window (to do)
+        _core->setPathVoxelFilter(
+                [&](const voxel_map::Box & box) -> bool
+                {
+                    auto test_box = box;
+                    test_box.lower(Z) += _task_lower_hgt;
+                    test_box.upper(Z) += _task_upper_hgt;
+
+                    return
+                        box.contain(voxel_map::Point(
+                            box.lower(X),
+                            box.lower(Y),
+                            _odom.pose.pose.position.z
+                        )) 
+                        && 
+                        _core->isValidBox(test_box);
+                }
+        );
+    }
+    genTrajectory();
+}
+
+void TrajectoryGenerator::configLanding()
+{
+    ROS_WARN("[GENERATOR] configure landing...");
+    _waypoints = vector<double>
+    {
+        _odom.pose.pose.position.x,
+        _odom.pose.pose.position.y,
+        _land_hgt
+    };
+    _core->setFlightVelocity(_land_vel);
+    _core->setFlightAcceleration(_land_acc);
+    {
+        // setting up the filter for search flight corridor
+        //  fix (x, y)
+        _core->setPathVoxelFilter(
+                [&](const voxel_map::Box & box) -> bool
+                {
+                    return
+                        box.contain(voxel_map::Point(
+                            _odom.pose.pose.position.x,
+                            _odom.pose.pose.position.y,
+                            box.lower(Z)
+                        ));
+                }
+        );
+    }
+    genTrajectory();
+}
+
+void TrajectoryGenerator::configHovering()
+{
+    ROS_WARN("[GENERATOR] configure hovering...");
+    _waypoints = vector<double>
+    {
+        _odom.pose.pose.position.x,
+        _odom.pose.pose.position.y,
+        _odom.pose.pose.position.z
+    };
+    { // setting up the filter, fix x, y, z 
+        _core->setPathVoxelFilter(
+                [&](const voxel_map::Box & box) -> bool
+                {
+                    return
+                        box.contain(voxel_map::Point(
+                            _odom.pose.pose.position.x,
+                            _odom.pose.pose.position.y,
+                            _odom.pose.pose.position.z
+                        ));
+                }
+        );
+    }
+    genTrajectory();
+}

@@ -35,3 +35,4 @@ max_velocity : 2.0
 max_acceleration : 2.0    
 flight_velocity : 1.5
 flight_acceleration : 4
+heuristic_ratio : 1.0

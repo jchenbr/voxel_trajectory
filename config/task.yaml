@@ -1,0 +1,20 @@
+setting :
+    take_off:
+        height : 1.2
+        velocity : 2.0
+        acceleration : 2.0
+    land:
+        height : -0.05
+        velocity : 2.0
+        acceleration : 2.0
+    task:
+        arrival_threshold : 0.1
+        velocity : 3.0
+        acceleration : 3.0
+        lower_height : -0.2
+        upper_height : 0.5
+        waypoints:
+            num : 2
+            point_0 : [5.0, 0.0, 2]
+            point_1 : [5.0, 5.0, 1.5]
+            
