@@ -315,14 +315,16 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
         _core->setMapBoundary(bdy);
     }
     {
-        double resolution, margin, max_vel, max_acc, f_vel, f_acc, heu_r;
+        double resolution, margin, max_vel, max_acc, f_vel, f_acc, heu_r, grd, top;
         handle.param("map/resolution", resolution, 0.4);
         handle.param("map/safe_margin", margin, 0.3);
         handle.param("max_velocity", max_vel, 1.0);
         handle.param("max_acceleration", max_acc, 1.0);
         handle.param("flight_velocity", f_vel, max_vel);
         handle.param("flight_acceleration", f_acc, max_acc);
-        handle.param("heuristic_ratio", heu_r, 5.0);
+        handle.param("path/heuristic_ratio", heu_r, 5.0);
+        handle.param("path/allowed_ground", grd, 0.0);
+        handle.param("path/allowed_top", top, 2.2);
         _core->setResolution(resolution);
         _core->setMargin(margin);
         _core->setMaxVelocity(max_vel);
@@ -330,6 +332,8 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
         _core->setFlightVelocity(f_vel);
         _core->setFlightAcceleration(f_acc);
         _core->setHeuristicRatio(heu_r);
+        _core->setPathVoxelFilter([=](const voxel_map::Box & box)
+            {return box.lower(2) >= grd && box.upper(2) <= top;});
         _core->initMap();    
         double pos_gain[NUM_DIM] = {3.7, 3.7, 5.2};
         double vel_gain[NUM_DIM] = {2.4, 2.4, 3.0};

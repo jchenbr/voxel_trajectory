@@ -86,8 +86,7 @@ public:
 
             _path_voxel_filter = [](const voxel_map::Box & box)
             {
-                auto ctr = box.getCenter();
-                return ctr(2) >= 0.0;
+                return box.lower(2) >= 0.0;
             };
         }
 
