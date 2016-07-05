@@ -29,6 +29,7 @@ private:
     ros::Time _final_time = ros::TIME_MIN;
     ros::Time _start_time = ros::TIME_MAX;
     double _start_yaw = 0.0, _final_yaw = 0.0;
+    double _track_thld = 0.3;
 
     // state of the server
     enum ServerState{INIT, TRAJ, HOVER} state = INIT;
@@ -46,6 +47,8 @@ public:
 
         _cmd_pub = 
             handle.advertise<quadrotor_msgs::PositionCommand>("position_command", 50);
+
+        handle.param("track_threshold", _track_thld, 0.3);
 
         double pos_gain[_TOT_DIM] = {3.7, 3.7, 5.2};
         double vel_gain[_TOT_DIM] = {2.4, 2.4, 3.0};
@@ -77,6 +80,19 @@ public:
         {
             state = HOVER;
             _traj_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
+        } 
+        else if (state == TRAJ && Eigen::Vector3d(
+                    _cmd.position.x - _odom.pose.pose.position.x,
+                    _cmd.position.y - _odom.pose.pose.position.y,
+                    _cmd.position.z - _odom.pose.pose.position.z).norm() > _track_thld)
+        {
+            state = HOVER;
+            _traj_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_IMPOSSIBLE;
+            _cmd.position.x = _odom.pose.pose.position.x;
+            _cmd.position.y = _odom.pose.pose.position.y;
+            _cmd.position.z = _odom.pose.pose.position.z;
+            _cmd.velocity.x = _cmd.velocity.y = _cmd.velocity.z = 0.0;
+            _cmd.acceleration.x = _cmd.acceleration.y = _cmd.acceleration.z = 0.0;
         }
     }
 

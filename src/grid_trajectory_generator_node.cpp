@@ -140,6 +140,7 @@ private:
     double _flight_height_limit = 100.0;
 
     // trajectory
+    bool _is_traj_pending = false;
     uint32_t _traj_id = 1;
     uint8_t _traj_status = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_EMPTY;
     vector<double> _waypoints;
@@ -159,7 +160,7 @@ private:
 
     //VoxelTrajectory::VoxelServer * _core_no_inflation = new VoxelTrajectory::VoxelServer();
     //VoxelTrajectory::VoxelServer * _core_empty = new VoxelTrajectory::VoxelServer();
-    visualization_msgs::Marker _traj_vis;
+    // visualization_msgs::Marker _traj_vis;
     visualization_msgs::MarkerArray _path_vis, _inflated_path_vis;
     sensor_msgs::PointCloud2 _map_vis;
     sensor_msgs::PointCloud2 _check_point_vis;
@@ -266,8 +267,13 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
         handle.advertise<visualization_msgs::MarkerArray>("path_vis", 2);
     _inflated_path_vis_pub = 
         handle.advertise<visualization_msgs::MarkerArray>("inflated_path_vis", 2);
+#if 0
     _traj_vis_pub =
         handle.advertise<visualization_msgs::Marker>("trajectory_vis", 2);
+#else
+    _traj_vis_pub = 
+        handle.advertise<sensor_msgs::PointCloud>("trajectory_vis", 2);
+#endif
     _check_point_vis_pub =
         handle.advertise<sensor_msgs::PointCloud2>("checkpoints_vis", 2);
     _laser_vis_pub = 
@@ -374,8 +380,28 @@ void TrajectoryGenerator::rcvOdometry(const nav_msgs::Odometry & odom)
     if (odom.child_frame_id == "X" || odom.child_frame_id == "O") return ;
 
     _odom = odom;
-
     _has_odom = true;
+
+    if (_is_traj_pending)
+    {
+        _is_traj_pending = false;
+        auto state = _core->getDesiredState(_traj.header.stamp.toSec());
+        Eigen::Vector3d u(odom.pose.pose.position.x,
+                odom.pose.pose.position.y, 
+                odom.pose.pose.position.z);
+        Eigen::Vector3d v(state[0], state[1], state[2]); 
+        if ((u - v).norm() < 0.2) 
+        {
+            _traj.header.stamp = odom.header.stamp;
+            _traj_pub.publish(_traj);
+        }
+        else
+        {
+            _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ABORT;
+            _traj_pub.publish(_traj);
+        }
+    }
+
     _odom_queue.push_back(odom);
     while (_odom_queue.size() > _odom_queue_size) _odom_queue.pop_front();
 }
@@ -615,11 +641,19 @@ void TrajectoryGenerator::rcvWaypoints(const nav_msgs::Path & wp)
             _traj.start_yaw += 2 * _PI;
         if (abs( (_traj.start_yaw - 2 * _PI) - _traj.final_yaw) < _PI)
             _traj.start_yaw -= 2 * _PI;
+#if 1
+        _traj.start_yaw = 0.0;
+        _traj.final_yaw = 0.0;
+#endif
 
         _traj.header.frame_id = "/map";
         _traj.trajectory_id = _traj_id;
         _traj.action = quadrotor_msgs::PolynomialTrajectory::ACTION_ADD;
+#if 0
         _traj_pub.publish(_traj);
+#else
+        _is_traj_pending = true;
+#endif
         ROS_INFO("[GENERATOR] Published the trajectory.");
 
         {
@@ -632,7 +666,8 @@ void TrajectoryGenerator::rcvWaypoints(const nav_msgs::Path & wp)
                 << "[NEW_TRAJ] The new trajectory cost: " 
                 << p_core->qp_cost[X] << ", "
                 << p_core->qp_cost[Y] << ", "
-                << p_core->qp_cost[Z] << ".";
+                << p_core->qp_cost[Z] << ".\n" 
+                << " num of segments : " << _traj.num_segment;
             debug_info.data = sin.str();
             _debug_pub.publish(debug_info);
         }
@@ -711,9 +746,11 @@ void TrajectoryGenerator::visTrajectory()
 {
     if (!_is_vis || !_has_traj) return ;
     if (_odom.header.stamp > _final_time) return;
+
+#if 0
+    visualization_msgs::Marker _traj_vis;
     _traj_vis.header.stamp       = _odom.header.stamp;
     _traj_vis.header.frame_id    = "/map";
-
     _traj_vis.ns = "trajectory/trajectory";
     _traj_vis.id = 0;
     _traj_vis.type = visualization_msgs::Marker::SPHERE_LIST;
@@ -754,8 +791,36 @@ void TrajectoryGenerator::visTrajectory()
         if (count) traj_len += (pre - cur).norm();
         pre = cur;
     }
+#else
+    sensor_msgs::PointCloud _traj_vis;
+    _traj_vis.header.stamp       = _odom.header.stamp;
+    _traj_vis.header.frame_id    = "/map";
 
-    // ROS_INFO("[GENERATOR] The length of the trajectory; %.3lfm.", traj_len);
+    double traj_len = 0.0;
+    int count = 0;
+    Eigen::Vector3d cur, pre;
+
+    double t_begin = _core->getBeginTime(), t_final = _core->getFinalTime();
+    _traj_vis.points.reserve(static_cast<int>((t_final - t_begin) * 100 + 0.5));
+    vector<double> state;
+    geometry_msgs::Point32 pt;
+    for (double t = t_begin; t < t_final; t += 0.02, count += 1)
+    {
+        state = _core->getDesiredState(t);
+        cur(X) = state[X];
+        cur(Y) = state[Y];
+        cur(Z) = state[Z];
+        pt.x = state[X];
+        pt.y = state[Y];
+        pt.z = state[Z];
+        _traj_vis.points.push_back(pt);
+
+        if (count) traj_len += (pre - cur).norm();
+        pre = cur;
+    }
+#endif
+
+    ROS_INFO("[GENERATOR] The length of the trajectory; %.3lfm.", traj_len);
     _traj_vis_pub.publish(_traj_vis);
 }
 
@@ -842,7 +907,7 @@ void TrajectoryGenerator::visInflatedPath()
         mk.scale.y = path(idx, RY) - path(idx, LY);
         mk.scale.z = path(idx, RZ) - path(idx, LZ);
         
-        mk.pose.position.z = 0.01;
+        mk.pose.position.z = -0.02;
         mk.scale.z = 0.01;
         mk.color.a = 0.5;
         mk.color.r = 1.0;

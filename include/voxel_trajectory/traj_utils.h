@@ -145,7 +145,6 @@ namespace voxel_trajectory
 
         pcl::PointCloud<pcl::PointXYZ> pts;
         pcl::fromROSMsg(cloud2, pts);
-
         using namespace Eigen;
         Matrix3d rot = Quaterniond(
             odom.pose.pose.orientation.w,
@@ -158,6 +157,11 @@ namespace voxel_trajectory
             odom.pose.pose.position.z); 
         vector<voxel_map::Ray> ret;
         ret.reserve(pts.size());
+        if (pts.empty()) 
+        {
+            rays.clear();
+            return true;
+        }
 
         bool is_first = true;
         int pt_count = 0;
