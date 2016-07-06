@@ -307,7 +307,7 @@ public:
 
             ROS_WARN("[VoxelServer] H");
             MatrixXd edge, node;
-            vector<int> seg_id;
+            //vector<int> seg_id;
             {
                 prv_time = ros::Time::now();
                 vector<voxel_map::Box> voxels, windows;
@@ -336,7 +336,7 @@ public:
                         // collect result
                         voxels.insert(voxels.end(), path.begin(), path.end());
 
-                        seg_id.push_back(voxels.size() - 1);
+                        //seg_id.push_back(voxels.size() - 1);
 
                         if (windows.empty()) windows.emplace_back(src, src);
                         for (size_t ind = 0; ind + 1 < path.size(); ++ind) 
@@ -371,7 +371,7 @@ public:
                 prv_time = ros::Time::now();
                 { // inflate the voxels of the path
                     voxel_map::Path::VoxelPath _inflated_path;
-                    _map->retInflatedPathAsLike(voxels, _inflated_path, 4.0);
+                    _map->retInflatedPath(voxels, _inflated_path, 2.0);
                     inflated_path.resize(m, _TOT_BDY);
                     for (int idx = 0; idx < m; ++idx)
                     {
@@ -417,7 +417,7 @@ public:
                 pair<MatrixXd, VectorXd> traj = 
                    traj_gen.genPolyCoeffTime(path, inflated_path, 
                            Vel, Acc, max_vel, max_acc,
-                           flight_vel, flight_acc, coeff_t);
+                           flight_vel, flight_acc, arr_time,coeff_t);
                 qp_cost = traj_gen.qp_cost;
                 P   = traj.first;
                 T   = traj.second;
@@ -443,6 +443,7 @@ public:
                 init_time = init_T;
                 final_time = init_T + T.sum();
 
+#if 0 // to do new arr_time
                 arr_time.clear();
                 double tmp_time = init_time;
                 int sid = 0;
@@ -456,6 +457,9 @@ public:
                     }
                 }
                 arr_time.push_back(final_time);
+#else
+                for (auto & t: arr_time) t+= init_time;
+#endif
             }
 
             // #3. scaling rate

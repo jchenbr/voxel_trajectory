@@ -14,6 +14,7 @@ namespace VoxelTrajectory
 private:
 public:
 	std::vector<double> qp_cost;
+	
         std::pair<Eigen::MatrixXd,Eigen::VectorXd> genPolyCoeffTime(
             const Eigen::MatrixXd &PBE,
             const Eigen::MatrixXd &inflated_path,
@@ -23,6 +24,18 @@ public:
             const double maxAcc,
             const double fVel,
             const double fAcc,
+            double & coeff_t);
+            
+        std::pair<Eigen::MatrixXd,Eigen::VectorXd> genPolyCoeffTime(
+            const Eigen::MatrixXd &PBE,
+            const Eigen::MatrixXd &inflated_path,
+            const Eigen::MatrixXd &vel,
+            const Eigen::MatrixXd &acc,
+            const double maxVel,
+            const double maxAcc,
+            const double fVel,
+            const double fAcc,
+            std::vector<double> & arr_time,
             double & coeff_t);
    };
 }

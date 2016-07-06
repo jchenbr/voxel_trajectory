@@ -263,16 +263,18 @@ TrajectoryGenerator::TrajectoryGenerator(ros::NodeHandle & handle)
         handle.advertise<sensor_msgs::PointCloud2>("map_vis", 2);
     _map_no_inflation_vis_pub = 
         handle.advertise<sensor_msgs::PointCloud2>("map_no_inflation_vis", 2);
-    _path_vis_pub =
-        handle.advertise<visualization_msgs::MarkerArray>("path_vis", 2);
     _inflated_path_vis_pub = 
         handle.advertise<visualization_msgs::MarkerArray>("inflated_path_vis", 2);
 #if 0
     _traj_vis_pub =
         handle.advertise<visualization_msgs::Marker>("trajectory_vis", 2);
+    _path_vis_pub =
+        handle.advertise<visualization_msgs::MarkerArray>("path_vis", 2);
 #else
     _traj_vis_pub = 
         handle.advertise<sensor_msgs::PointCloud>("trajectory_vis", 2);
+    _path_vis_pub =
+        handle.advertise<sensor_msgs::PointCloud>("path_vis", 2);
 #endif
     _check_point_vis_pub =
         handle.advertise<sensor_msgs::PointCloud2>("checkpoints_vis", 2);
@@ -828,6 +830,7 @@ void TrajectoryGenerator::visPath()
 {
     if (!_is_vis) return ;
 
+#if 0
     for (auto & mk: _path_vis.markers) 
         mk.action = visualization_msgs::Marker::DELETE;
     _path_vis_pub.publish(_path_vis);
@@ -866,11 +869,30 @@ void TrajectoryGenerator::visPath()
         _path_vis.markers.push_back(mk);
     }
     _path_vis_pub.publish(_path_vis);
+#else
+    const Eigen::MatrixXd & path = _core->getPathConstRef();
+    size_t M = path.rows() >> 1;
+
+    sensor_msgs::PointCloud pc;
+    pc.header.frame_id = "/map";
+    pc.header.stamp = _odom.header.stamp;
+    pc.points.clear();
+
+    geometry_msgs::Point32 pt;
+    for (size_t idx = 1; idx <= M; ++idx)
+    {
+        pt.x = (path(idx, LX) + path(idx, RX)) * 0.5;
+        pt.y = (path(idx, LY) + path(idx, RY)) * 0.5;
+        pt.z = (path(idx, LZ) + path(idx, RZ)) * 0.5;
+        pc.points.push_back(pt);
+    }
+    _path_vis_pub.publish(pc);
+#endif
 }
 
 void TrajectoryGenerator::visInflatedPath()
 {
-    if (!_is_vis || !_has_traj) return ;
+    if (!_is_vis) return ;
 
     for (auto & mk: _inflated_path_vis.markers) 
         mk.action = visualization_msgs::Marker::DELETE;
@@ -907,9 +929,9 @@ void TrajectoryGenerator::visInflatedPath()
         mk.scale.y = path(idx, RY) - path(idx, LY);
         mk.scale.z = path(idx, RZ) - path(idx, LZ);
         
-        mk.pose.position.z = -0.02;
-        mk.scale.z = 0.01;
-        mk.color.a = 0.5;
+        mk.pose.position.z = -0.4;
+        mk.scale.z = 0.001;
+        mk.color.a = 0.3;
         mk.color.r = 1.0;
         mk.color.g = 1.0;
         mk.color.b = 1.0;
