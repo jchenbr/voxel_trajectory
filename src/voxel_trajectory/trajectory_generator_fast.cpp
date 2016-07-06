@@ -429,7 +429,11 @@ namespace VoxelTrajectory
         SMatrixXd H (M * N, M * N);
         H.reserve(M * N * N);
         for (int i = 0; i < M; i++)
+        {
+            //clog << "i = " << i << ", Matrix = \n";
+            //clog  << getHessianMatrix(T(i)) << endl;
             insertBlock(H, i * N, i * N, getHessianMatrix(T(i)));
+        }
 
         return H;
     }
@@ -479,7 +483,7 @@ namespace VoxelTrajectory
         return A;
     }
 
-    static pair<SMatrixXd, VectorXd> getConstrainsEndpoints_D(
+    static pair<SMatrixXd, VectorXd> getConstraintsEndpoints_D(
         const VectorXd &T,
         const MatrixXd &B,
         const MatrixXd &E,
@@ -527,7 +531,46 @@ namespace VoxelTrajectory
 
     }
 
-    static pair<SMatrixXd, VectorXd> getConstrainsEndpoints(
+    static pair<SMatrixXd, VectorXd> getConstraintsEndpoints_E(
+        const vector<pair<int, double> > &W,
+        const double p_s,
+        const double p_t,
+        const RowVectorXd & vel,
+        const RowVectorXd & acc)
+    {
+        // clog<<"CE-E-fine.-3"<<endl;
+        //MatrixXd CE = MatrixXd::Zero(R+R,M*N + 1);
+        SMatrixXd CE(R + R, (M + 1) * R);
+        CE.reserve(R + R);
+        VectorXd b = VectorXd::Zero(R + R);
+
+        b   << p_s, vel(0), acc(0),
+               p_t, vel(1), acc(1);
+
+        for (int j  = 0; j < R; j++)
+        {
+            CE.insert(j, 0 * R + j) = 1.0;
+            CE.insert(R + j, M * R + j) = 1.0;
+        }
+
+        int c_wp = W.size(), i_wp = 0;
+
+        SMatrixXd CE_wp(c_wp, (M + 1) * R);
+        CE_wp.reserve(c_wp);
+        VectorXd b_wp(c_wp);
+
+        for (int k = 0; k < c_wp; ++k)
+        {
+            CE_wp.insert(i_wp, W[k].first * R + 0) = 1.0;
+            b_wp(i_wp++) = W[k].second;
+        }
+
+        // clog<<"CE-E-fine. done"<<endl;
+        return combineRowsPr(make_pair(CE, b), make_pair(CE_wp, b_wp));
+
+    }
+
+    static pair<SMatrixXd, VectorXd> getConstraintsEndpoints(
         const VectorXd &T,
         const MatrixXd &B,
         const MatrixXd &E,
@@ -599,7 +642,7 @@ namespace VoxelTrajectory
     }
 
     static pair< pair<SMatrixXd, VectorXd>, pair<SMatrixXd,VectorXd> > 
-    getConstrainsCorridors(
+    getConstraintsCorridors(
         const VectorXd &T,
         const MatrixXd &B,
         const MatrixXd &E)
@@ -704,10 +747,9 @@ namespace VoxelTrajectory
     }
 
     static pair< pair<SMatrixXd, VectorXd>, pair<SMatrixXd,VectorXd> > 
-    getConstrainsOverlappedCorridors_D(
+    getConstraintsOverlappedCorridors_D(
         const VectorXd &T,
-        const MatrixXd &B,
-        const MatrixXd &E)
+        const MatrixXd &B)
     {
         //int last = 0;
         vector<pair<int, double > > vecCE;
@@ -757,7 +799,7 @@ namespace VoxelTrajectory
     }
 
 
-    static pair<SMatrixXd, VectorXd> getConstrainsContinuity(
+    static pair<SMatrixXd, VectorXd> getConstraintsContinuity(
         const VectorXd &T)
     {
         SMatrixXd CE((M - 1) * R, M * N);
@@ -1038,7 +1080,7 @@ namespace VoxelTrajectory
         return ret;
     }
 
-    static MatrixXd getConstrainsExtremums(
+    static MatrixXd getConstraintsExtremums(
         const VectorXd &T,
         const MatrixXd &B,
         const VectorXd &P,
@@ -1240,16 +1282,17 @@ static int _error_code = 0;
         const double p_s,
         const double p_t,
         const MatrixXd & B,
-        const MatrixXd & B_ori,
-        const MatrixXd & E,
+        const vector<pair<int, double> > & W,
         const VectorXd & T,
         const RowVectorXd & vel,
         const RowVectorXd & acc,
         double & coeff_t)
     {
+        //clog << "0.." << T.transpose() << endl;
         //> Hessian Matrix 
         SMatrixXd H, H_DD, H_FD, Q = getCostMatrix(T);
         MatrixXd COST;
+        //clog << "0.5. get costs." << endl;
 
         //> Mapping Matrix
         SMatrixXd IP2D = getMappingMatrix(T);
@@ -1260,12 +1303,13 @@ static int _error_code = 0;
 
         //> Endpoints
         pair<SMatrixXd, VectorXd> CE_0 = 
-            getConstrainsEndpoints_D(T, B_ori, E, p_s, p_t, vel, acc);
+            getConstraintsEndpoints_E(W, p_s, p_t, vel, acc);
 
         // clog << "2. Endpoints." << endl;
         // Corridors
         pair<pair<SMatrixXd, VectorXd>, pair<SMatrixXd, VectorXd> > CE_CI_1 = 
-            getConstrainsOverlappedCorridors_D(T , B, E);
+            getConstraintsOverlappedCorridors_D(T , B);
+     
 
         // clog << "3. Corriors." << endl;
 
@@ -1408,8 +1452,7 @@ static int _error_code = 0;
         const VectorXd &p_s,
         const VectorXd &p_t,
         const MatrixXd &B,
-        const MatrixXd &B_ori,
-        const MatrixXd &E,
+        const vector<vector<pair<int, double> > > &W,
         const VectorXd &T,
         const MatrixXd &vel,
         const MatrixXd &acc,
@@ -1425,8 +1468,7 @@ static int _error_code = 0;
                             p_s(dim),
                             p_t(dim),
                             B.block(0, dim << 1, M, 2),
-                            B_ori.block(0, dim << 1, M, 2),
-                            E.block(0, dim << 1, M - 1, 2),
+                            W[dim],
                             T,
                             vel.row(dim),
                             acc.row(dim),
@@ -1439,6 +1481,126 @@ static int _error_code = 0;
         return P;
     }
 
+    inline void prunePath(
+            VectorXd &T,
+            MatrixXd &B,
+            MatrixXd &B_ori,
+            MatrixXd &E,
+            vector<vector<pair<int, double> > > &W)
+    {
+        assert(T.rows() == B.rows() && B.rows() == E.rows() + 1);
+        //clog << "? " << T.transpose() << endl;
+        int m = T.rows(); 
+        if (m == 0) return ;
+        vector<double> t{T(0)};
+        vector<RowVectorXd> b{B.row(0)};
+        vector<vector<pair<int, double> > > w(_TOT_DIM);
+
+        auto Cover = [](RowVectorXd & last, RowVectorXd & curt, RowVectorXd & ori) -> bool
+        {
+            if ( 
+                    last(_BDY_x) > ori(_BDY_x) + _EPS || last(_BDY_X) + _EPS < ori(_BDY_X) ||
+                    last(_BDY_y) > ori(_BDY_y) + _EPS || last(_BDY_Y) + _EPS < ori(_BDY_Y) ||
+                    last(_BDY_z) > ori(_BDY_z) + _EPS || last(_BDY_Z) + _EPS < ori(_BDY_Z))
+                return false;
+
+            double shared_volume = 
+               (min(last(_BDY_X), curt(_BDY_X)) - max(last(_BDY_x), curt(_BDY_x))) * 
+               (min(last(_BDY_Y), curt(_BDY_Y)) - max(last(_BDY_y), curt(_BDY_y))) * 
+               (min(last(_BDY_Z), curt(_BDY_Z)) - max(last(_BDY_z), curt(_BDY_z))); 
+
+            double total_volume = 
+                (last(_BDY_X) - last(_BDY_x)) * 
+                (last(_BDY_Y) - last(_BDY_y)) * 
+                (last(_BDY_Z) - last(_BDY_z)) + 
+                (curt(_BDY_X) - curt(_BDY_x)) * 
+                (curt(_BDY_Y) - curt(_BDY_y)) * 
+                (curt(_BDY_Z) - curt(_BDY_z)) - shared_volume;
+
+            constexpr double cmp_ratio = 0.8;
+            return shared_volume  >= total_volume * cmp_ratio;
+        };
+
+        for (int i = 1; i < m; ++i)
+        {
+            RowVectorXd curt = B.row(i), ori = B_ori.row(i);
+
+            // figure out appointed waypoints! 
+            if ((B_ori.row(i - 1) - B_ori.row(i)).norm() < _EPS)
+            {
+                w[_DIM_x].emplace_back((int)t.size() + 1 , E(i - 1, _BDY_x));
+                w[_DIM_y].emplace_back((int)t.size() + 1 , E(i - 1, _BDY_y));
+                w[_DIM_z].emplace_back((int)t.size() + 1 , E(i - 1, _BDY_z));
+                t.push_back(T(i)), b.push_back(curt);
+            } 
+            else if (Cover(b.back(), curt, ori)) 
+                t.back() += T(i);
+            else
+            {
+                t.push_back(T(i)), b.push_back(curt);
+                //clog << "t = " << T(i) << ", " << curt << endl;
+            }
+        }
+
+
+        M = t.size();
+        //clog << "M  = " << M << endl;
+        T.resize(M);
+        for (int i = 0; i < M; ++i) T(i) = t[i];
+        B.resize(M, _TOT_BDY);
+        for (int i = 0; i < M; ++i) B.row(i) << b[i];
+        W = move(w);
+    }
+    
+    pair<MatrixXd,VectorXd> TrajectoryGenerator::genPolyCoeffTime(
+        const MatrixXd &PBE,
+        const MatrixXd &inflated_path,
+        const MatrixXd &vel,
+        const MatrixXd &acc,
+        const double maxVel,
+        const double maxAcc,
+        const double fVel,
+        const double fAcc,
+        vector<double> & arr_time,
+        double & coeff_t) 
+    {
+        assert(PBE.cols() == _TOT_BDY && inflated_path.cols() == _TOT_BDY);
+        assert(vel.rows() == _TOT_DIM && vel.cols() == 2);
+        assert(acc.rows() == _TOT_DIM && acc.cols() == 2);
+
+        _qp_cost.clear();
+
+        VectorXd p_s, p_t;
+        MatrixXd B, B_, E, P;
+        vector<vector<pair<int, double> > > W;
+        VectorXd T;
+        // init()
+        max_vel = maxVel;
+        max_acc = maxAcc;
+        f_vel = fVel;
+        f_acc = fAcc;
+        retInit(PBE, inflated_path, p_s, p_t, B, B_, E);
+
+        // allocate time for each segment
+        //T   = getTime_stupid(p_s, p_t, E, vel);
+        T   = getTime_smart(p_s, p_t, E, vel);
+
+        // clog << "FFFFFF!" << endl;
+        prunePath(T, B_, B, E, W);
+
+        { // compute the arr_time 
+            arr_time.clear();
+            for (auto & pr: W[_DIM_x])
+                arr_time.push_back(T.head(pr.first).sum());
+            arr_time.push_back(T.sum());
+        }
+
+        P   = getTrajCoeff(p_s, p_t, B_, W, T, vel, acc, coeff_t);
+
+        this->qp_cost = _qp_cost;
+        if (_error_code > 0) T(0) = -1;
+        return pair<MatrixXd,VectorXd>(P,T);
+    }
     pair<MatrixXd,VectorXd> TrajectoryGenerator::genPolyCoeffTime(
         const MatrixXd &PBE,
         const MatrixXd &inflated_path,
@@ -1458,6 +1620,7 @@ static int _error_code = 0;
 
         VectorXd p_s, p_t;
         MatrixXd B, B_, E, P;
+        vector<vector<pair<int, double> > > W;
         VectorXd T;
         // init()
         max_vel = maxVel;
@@ -1469,18 +1632,12 @@ static int _error_code = 0;
         // allocate time for each segment
         //T   = getTime_stupid(p_s, p_t, E, vel);
         T   = getTime_smart(p_s, p_t, E, vel);
-        //T   *= 24.0 / T.sum();
 
-        //clog<<"T:" <<T<<endl;
-        // generate the coeff for polynomial traj
-        //swap(B, B_);
-#ifdef _TRAJECTORY_GENERATOR_FLAG_NO_INFLATION_
-        assert(false);
-        P   = getTrajCoeff(p_s, p_t, B, B, E, T, vel, acc, coeff_t); 
-        coeff_t = 1.0;
-#else
-        P   = getTrajCoeff(p_s, p_t, B_, B, E, T, vel, acc, coeff_t);
-#endif
+        // clog << "FFFFFF!" << endl;
+        prunePath(T, B_, B, E, W);
+
+        P   = getTrajCoeff(p_s, p_t, B_, W, T, vel, acc, coeff_t);
+
         this->qp_cost = _qp_cost;
         if (_error_code > 0) T(0) = -1;
         return pair<MatrixXd,VectorXd>(P,T);
